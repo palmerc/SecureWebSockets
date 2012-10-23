@@ -1,4 +1,4 @@
-package com.example.tlsone;
+package com.cameronpalmer.echo;
 
 import android.app.Activity;
 import android.os.Bundle;
@@ -17,6 +17,9 @@ import android.widget.TextView;
 import de.tavendo.autobahn.WebSocket.ConnectionHandler;
 import de.tavendo.autobahn.WebSocketConnection;
 import de.tavendo.autobahn.WebSocketException;
+
+
+
 
 public class EchoActivity extends Activity implements ConnectionHandler {
 	private static final String WS_ECHO_SERVER = "ws://echo.websocket.org";
