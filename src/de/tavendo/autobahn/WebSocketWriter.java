@@ -19,6 +19,7 @@
 package de.tavendo.autobahn;
 
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.util.Random;
@@ -37,26 +38,16 @@ import android.util.Log;
  * background thread) so that it can be formatted and sent out on the
  * underlying TCP socket.
  */
-public class WebSocketWriter extends Handler {
+public class WebSocketWriter extends Thread {
 	private static final String TAG = WebSocketWriter.class.getName();
 
-	/// Random number generator for handshake key and frame mask generation.
-	private final Random mRng = new Random();
-
-	/// Connection master.
+	private final Random mRandom = new Random();
 	private final Handler mMaster;
-
-	/// Message looper this object is running on.
-	private final Looper mLooper;
-
-	/// The NIO socket channel created on foreground thread.
-	private final SocketChannel mSocket;
-
-	/// WebSockets options.
-	private final WebSocketOptions mOptions;
-
-	/// The send buffer that holds data to send on socket.
+	private final SocketChannel mSocketChannel;
+	private final WebSocketOptions mWebSocketOptions;
 	private final ByteBufferOutputStream mBuffer;
+
+	private Handler mHandler;
 
 
 	/**
@@ -68,15 +59,13 @@ public class WebSocketWriter extends Handler {
 	 * @param socket    The socket channel created on foreground thread.
 	 * @param options   WebSockets connection options.
 	 */
-	public WebSocketWriter(Looper looper, Handler master, SocketChannel socket, WebSocketOptions options) {
+	public WebSocketWriter(Handler master, SocketChannel socket, WebSocketOptions options, String threadName) {
+		super(threadName);
 
-		super(looper);
-
-		mLooper = looper;
-		mMaster = master;
-		mSocket = socket;
-		mOptions = options;
-		mBuffer = new ByteBufferOutputStream(options.getMaxFramePayloadSize() + 14, 4*64*1024);
+		this.mMaster = master;
+		this.mSocketChannel = socket;
+		this.mWebSocketOptions = options;
+		this.mBuffer = new ByteBufferOutputStream(options.getMaxFramePayloadSize() + 14, 4*64*1024);
 
 		Log.d(TAG, "WebSocket writer created.");
 	}
@@ -93,10 +82,9 @@ public class WebSocketWriter extends Handler {
 	 *                      this class).
 	 */
 	public void forward(Object message) {
-
-		Message msg = obtainMessage();
+		Message msg = mHandler.obtainMessage();
 		msg.obj = message;
-		sendMessage(msg);
+		mHandler.sendMessage(msg);
 	}
 
 
@@ -106,7 +94,6 @@ public class WebSocketWriter extends Handler {
 	 * @param message       Message to send to master.
 	 */
 	private void notify(Object message) {
-
 		Message msg = mMaster.obtainMessage();
 		msg.obj = message;
 		mMaster.sendMessage(msg);
@@ -120,7 +107,7 @@ public class WebSocketWriter extends Handler {
 	 */
 	private String newHandshakeKey() {
 		final byte[] ba = new byte[16];
-		mRng.nextBytes(ba);
+		mRandom.nextBytes(ba);
 		return Base64.encodeToString(ba, Base64.NO_WRAP);
 	}
 
@@ -132,7 +119,7 @@ public class WebSocketWriter extends Handler {
 	 */
 	private byte[] newFrameMask() {
 		final byte[] ba = new byte[4];
-		mRng.nextBytes(ba);
+		mRandom.nextBytes(ba);
 		return ba;
 	}
 
@@ -183,12 +170,10 @@ public class WebSocketWriter extends Handler {
 	 * Send WebSockets close.
 	 */
 	private void sendClose(WebSocketMessage.Close message) throws IOException, WebSocketException {
-
 		if (message.getCode() > 0) {
-
 			byte[] payload = null;
 
-			if (message.getReason() != null && !message.getReason().equals("")) {
+			if (message.getReason() != null && !(message.getReason().length() > 0)) {
 				byte[] pReason = message.getReason().getBytes(WebSocket.UTF8_ENCODING);
 				payload = new byte[2 + pReason.length];
 				for (int i = 0; i < pReason.length; ++i) {
@@ -239,7 +224,7 @@ public class WebSocketWriter extends Handler {
 	 * Send WebSockets binary message.
 	 */
 	private void sendBinaryMessage(WebSocketMessage.BinaryMessage message) throws IOException, WebSocketException {
-		if (message.mPayload.length > mOptions.getMaxMessagePayloadSize()) {
+		if (message.mPayload.length > mWebSocketOptions.getMaxMessagePayloadSize()) {
 			throw new WebSocketException("message payload exceeds payload limit");
 		}
 		sendFrame(2, true, message.mPayload);
@@ -251,7 +236,7 @@ public class WebSocketWriter extends Handler {
 	 */
 	private void sendTextMessage(WebSocketMessage.TextMessage message) throws IOException, WebSocketException {
 		byte[] payload = message.mPayload.getBytes(WebSocket.UTF8_ENCODING);
-		if (payload.length > mOptions.getMaxMessagePayloadSize()) {
+		if (payload.length > mWebSocketOptions.getMaxMessagePayloadSize()) {
 			throw new WebSocketException("message payload exceeds payload limit");
 		}
 		sendFrame(1, true, payload);
@@ -262,7 +247,7 @@ public class WebSocketWriter extends Handler {
 	 * Send WebSockets binary message.
 	 */
 	private void sendRawTextMessage(WebSocketMessage.RawTextMessage message) throws IOException, WebSocketException {
-		if (message.mPayload.length > mOptions.getMaxMessagePayloadSize()) {
+		if (message.mPayload.length > mWebSocketOptions.getMaxMessagePayloadSize()) {
 			throw new WebSocketException("message payload exceeds payload limit");
 		}
 		sendFrame(1, true, message.mPayload);
@@ -308,7 +293,7 @@ public class WebSocketWriter extends Handler {
 
 		// second octet
 		byte b1 = 0;
-		if (mOptions.getMaskClientFrames()) {
+		if (mWebSocketOptions.getMaskClientFrames()) {
 			b1 = (byte) (1 << 7);
 		}
 
@@ -337,7 +322,7 @@ public class WebSocketWriter extends Handler {
 		}
 
 		byte mask[] = null;
-		if (mOptions.getMaskClientFrames()) {
+		if (mWebSocketOptions.getMaskClientFrames()) {
 			// a mask is always needed, even without payload
 			mask = newFrameMask();
 			mBuffer.write(mask[0]);
@@ -347,7 +332,7 @@ public class WebSocketWriter extends Handler {
 		}
 
 		if (len > 0) {
-			if (mOptions.getMaskClientFrames()) {
+			if (mWebSocketOptions.getMaskClientFrames()) {
 				/// \todo optimize masking
 				/// \todo masking within buffer of output stream
 				for (int i = 0; i < len; ++i) {
@@ -357,48 +342,6 @@ public class WebSocketWriter extends Handler {
 			mBuffer.write(payload, offset, length);
 		}
 	}
-
-
-	/**
-	 * Process message received from foreground thread. This is called from
-	 * the message looper set up for the background thread running this writer.
-	 *
-	 * @param msg     Message from thread message queue.
-	 */
-	@Override
-	public void handleMessage(Message msg) {
-
-		try {
-
-			// clear send buffer
-			mBuffer.clear();
-
-			// process message from master
-			processMessage(msg.obj);
-
-			// send out buffered data
-			mBuffer.flip();
-			while (mBuffer.remaining() > 0) {
-				// this can block on socket write
-				@SuppressWarnings("unused")
-				int written = mSocket.write(mBuffer.getBuffer());
-			}
-
-		} catch (SocketException e) {
-
-			Log.d(TAG, "run() : SocketException (" + e.toString() + ")");
-
-			// wrap the exception and notify master
-			notify(new WebSocketMessage.ConnectionLost());
-		} catch (Exception e) {
-
-			e.printStackTrace();
-
-			// wrap the exception and notify master
-			notify(new WebSocketMessage.Error(e));
-		}
-	}
-
 
 	/**
 	 * Process WebSockets or control message from master. Normally,
@@ -411,49 +354,46 @@ public class WebSocketWriter extends Handler {
 	protected void processMessage(Object msg) throws IOException, WebSocketException {
 
 		if (msg instanceof WebSocketMessage.TextMessage) {
-
 			sendTextMessage((WebSocketMessage.TextMessage) msg);
-
 		} else if (msg instanceof WebSocketMessage.RawTextMessage) {
-
 			sendRawTextMessage((WebSocketMessage.RawTextMessage) msg);
-
 		} else if (msg instanceof WebSocketMessage.BinaryMessage) {
-
 			sendBinaryMessage((WebSocketMessage.BinaryMessage) msg);
-
 		} else if (msg instanceof WebSocketMessage.Ping) {
-
 			sendPing((WebSocketMessage.Ping) msg);
-
 		} else if (msg instanceof WebSocketMessage.Pong) {
-
 			sendPong((WebSocketMessage.Pong) msg);
-
 		} else if (msg instanceof WebSocketMessage.Close) {
-
 			sendClose((WebSocketMessage.Close) msg);
-
 		} else if (msg instanceof WebSocketMessage.ClientHandshake) {
-
 			sendClientHandshake((WebSocketMessage.ClientHandshake) msg);
-
 		} else if (msg instanceof WebSocketMessage.Quit) {
+			Looper.myLooper().quit();
 
-			mLooper.quit();
-
-			Log.d(TAG, "ended");
-
-			return;
-
+			Log.d(TAG, "WebSocket writer ended.");
 		} else {
-
-			// call hook which may be overridden in derived class to process
-			// messages we don't understand in this class
 			processAppMessage(msg);
 		}
 	}
 
+	public void writeMessageToBuffer(Message message) {
+		try {
+			mBuffer.clear();
+			processMessage(message.obj);
+			mBuffer.flip();
+			while (mBuffer.remaining() > 0) {
+				mSocketChannel.write(mBuffer.getBuffer());
+			}
+		} catch (SocketException e) {
+			Log.d(TAG, "run() : SocketException (" + e.toString() + ")");
+
+			notify(new WebSocketMessage.ConnectionLost());
+		} catch (Exception e) {
+			e.printStackTrace();
+			
+			notify(new WebSocketMessage.Error(e));
+		}
+	}
 
 	/**
 	 * Process message other than plain WebSockets or control message.
@@ -463,5 +403,49 @@ public class WebSocketWriter extends Handler {
 	 */
 	protected void processAppMessage(Object msg) throws WebSocketException, IOException {
 		throw new WebSocketException("unknown message received by WebSocketWriter");
+	}
+
+
+
+	// Thread method overrides
+	@Override
+	public void run() {		
+		Looper.prepare();
+
+		this.mHandler = new ThreadHandler(this);
+		
+		synchronized (this) {
+			Log.d(TAG, "WebSocker writer running.");
+
+			notifyAll();
+		}
+		
+		Looper.loop();
+	}
+
+
+
+	//
+	// Private handler class
+	private static class ThreadHandler extends Handler {
+		private final WeakReference<WebSocketWriter> mWebSocketWriterReference;
+
+
+
+		public ThreadHandler(WebSocketWriter webSocketWriter) {
+			super();
+
+			this.mWebSocketWriterReference = new WeakReference<WebSocketWriter>(webSocketWriter);
+		}
+
+
+
+		@Override
+		public void handleMessage(Message message) {
+			WebSocketWriter webSocketWriter = mWebSocketWriterReference.get();
+			if (webSocketWriter != null) {
+				webSocketWriter.writeMessageToBuffer(message);
+			}
+		}
 	}
 }

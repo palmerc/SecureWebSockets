@@ -20,8 +20,6 @@ package de.tavendo.autobahn;
 
 import java.net.URI;
 
-import de.tavendo.autobahn.WebSocket.WebSocketConnectionObserver.WebSocketCloseNotification;
-
 /**
  * WebSockets message classes.
  * The master thread and the background reader/writer threads communicate using these messages

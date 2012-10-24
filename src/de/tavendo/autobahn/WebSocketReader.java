@@ -88,7 +88,6 @@ public class WebSocketReader extends Thread {
 	 * @param socket    The socket channel created on foreground thread.
 	 */
 	public WebSocketReader(Handler master, SocketChannel socket, WebSocketOptions options, String threadName) {
-
 		super(threadName);
 
 		mMaster = master;
@@ -101,7 +100,7 @@ public class WebSocketReader extends Thread {
 		mFrameHeader = null;
 		mState = ReaderState.STATE_CONNECTING;
 
-		Log.d(TAG, "created");
+		Log.d(TAG, "WebSocket reader created.");
 	}
 
 
@@ -639,8 +638,12 @@ public class WebSocketReader extends Thread {
 	@Override
 	public void run() {
 
-		Log.d(TAG, "running");
-
+		Log.d(TAG, "WebSocker reader running.");
+		
+		synchronized (this) {
+			notifyAll();
+		}
+		
 		try {
 
 			mFrameBuffer.clear();
