@@ -312,65 +312,6 @@ public class WebSocketConnection implements WebSocket {
 		Log.d(TAG, "WebSocket reader created and started.");
 	}
 
-
-
-	private static class SocketThread extends Thread {	
-		private final URI mWebSocketURI;
-		private final WebSocketOptions mWebSocketOptions;
-
-		private SocketChannel mSocketChannel = null;
-		private String mFailureMessage = null;
-
-
-
-		public SocketThread(URI uri, WebSocketOptions options) {
-			this.setName(WS_CONNECTOR);
-			this.mWebSocketURI = uri;
-			this.mWebSocketOptions = options;
-		}
-
-
-
-		@Override
-		public void run() {
-			synchronized (this) {
-				connect();
-				notifyAll();
-			}
-		}
-
-
-
-		public void connect() {	
-			try {
-				String host = mWebSocketURI.getHost();
-				int port = mWebSocketURI.getPort();
-				if (port == -1) {
-					if (mWebSocketURI.getScheme().equals(WSS_URI_SCHEME)) {
-						port = 443;
-					} else {
-						port = 80;
-					}
-				}
-
-				SocketChannel socketChannel = SocketChannel.open();
-				socketChannel.socket().connect(new InetSocketAddress(host, port), mWebSocketOptions.getSocketConnectTimeout());
-				socketChannel.socket().setSoTimeout(mWebSocketOptions.getSocketReceiveTimeout());
-				socketChannel.socket().setTcpNoDelay(mWebSocketOptions.getTcpNoDelay());
-				this.mSocketChannel = socketChannel;
-			} catch (IOException e) {
-				this.mFailureMessage = e.getLocalizedMessage();
-			}
-		}
-
-		public SocketChannel getSocketChannel() {
-			return mSocketChannel;
-		}
-		public String getFailureMessage() {
-			return mFailureMessage;
-		}
-	}
-
 	private void handleMessage(Message message) {
 		if (message.obj instanceof WebSocketMessage.TextMessage) {
 			WebSocketMessage.TextMessage textMessage = (WebSocketMessage.TextMessage) message.obj;
@@ -455,7 +396,67 @@ public class WebSocketConnection implements WebSocket {
 		}
 	}
 
+	
+	
+	private static class SocketThread extends Thread {	
+		private final URI mWebSocketURI;
+		private final WebSocketOptions mWebSocketOptions;
 
+		private SocketChannel mSocketChannel = null;
+		private String mFailureMessage = null;
+
+
+
+		public SocketThread(URI uri, WebSocketOptions options) {
+			this.setName(WS_CONNECTOR);
+			this.mWebSocketURI = uri;
+			this.mWebSocketOptions = options;
+		}
+
+
+
+		@Override
+		public void run() {
+			synchronized (this) {
+				connect();
+				notifyAll();
+			}
+		}
+
+
+
+		public void connect() {	
+			try {
+				String host = mWebSocketURI.getHost();
+				int port = mWebSocketURI.getPort();
+				if (port == -1) {
+					if (mWebSocketURI.getScheme().equals(WSS_URI_SCHEME)) {
+						port = 443;
+					} else {
+						port = 80;
+					}
+				}
+
+				SocketChannel socketChannel = SocketChannel.open();
+				socketChannel.socket().connect(new InetSocketAddress(host, port), mWebSocketOptions.getSocketConnectTimeout());
+				socketChannel.socket().setSoTimeout(mWebSocketOptions.getSocketReceiveTimeout());
+				socketChannel.socket().setTcpNoDelay(mWebSocketOptions.getTcpNoDelay());
+				this.mSocketChannel = socketChannel;
+			} catch (IOException e) {
+				this.mFailureMessage = e.getLocalizedMessage();
+			}
+		}
+
+		public SocketChannel getSocketChannel() {
+			return mSocketChannel;
+		}
+		public String getFailureMessage() {
+			return mFailureMessage;
+		}
+	}
+	
+	
+	
 	private static class ThreadHandler extends Handler {
 		private final WeakReference<WebSocketConnection> mWebSocketConnection;
 
