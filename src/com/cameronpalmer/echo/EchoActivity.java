@@ -1,5 +1,8 @@
 package com.cameronpalmer.echo;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+
 import android.app.Activity;
 import android.os.Bundle;
 import android.os.Handler;
@@ -14,14 +17,14 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import de.tavendo.autobahn.WebSocket.ConnectionHandler;
+import de.tavendo.autobahn.WebSocket.WebSocketConnectionObserver;
 import de.tavendo.autobahn.WebSocketConnection;
 import de.tavendo.autobahn.WebSocketException;
 
 
 
 
-public class EchoActivity extends Activity implements ConnectionHandler {
+public class EchoActivity extends Activity implements WebSocketConnectionObserver {
 	private static final String WS_ECHO_SERVER = "ws://echo.websocket.org";
 	private static final String WSS_ECHO_SERVER = "wss://echo.websocket.org";
 
@@ -35,6 +38,7 @@ public class EchoActivity extends Activity implements ConnectionHandler {
 	private Button mRepeatButton;
 
 	private WebSocketConnection mConnection;
+	private URI mServerURI;
 
 	private int mMessageIndex = 1;
 	private volatile boolean mIsConnected = false;
@@ -94,24 +98,24 @@ public class EchoActivity extends Activity implements ConnectionHandler {
 			}
 		});
 	}
-	
+
 	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
-	    MenuInflater inflater = getMenuInflater();
-	    inflater.inflate(R.menu.activity_echo, menu);
-	    
-	    return true;
+		MenuInflater inflater = getMenuInflater();
+		inflater.inflate(R.menu.activity_echo, menu);
+
+		return true;
 	}
-	
+
 	@Override
 	public boolean onOptionsItemSelected(MenuItem item) {
-	    switch (item.getItemId()) {
-	        case R.id.menu_tls_enable:
-	        	tlsToggle(item);
-	            return true;
-	        default:
-	            return super.onOptionsItemSelected(item);
-	    }
+		switch (item.getItemId()) {
+		case R.id.menu_tls_enable:
+			tlsToggle(item);
+			return true;
+		default:
+			return super.onOptionsItemSelected(item);
+		}
 	}
 
 	@Override
@@ -124,15 +128,21 @@ public class EchoActivity extends Activity implements ConnectionHandler {
 	}
 
 
-	
+
 	public void connect() {
 		try {
 			if (mTLSEnabled) {
-				mConnection.connect(WSS_ECHO_SERVER, this);
+				this.mServerURI = new URI(WSS_ECHO_SERVER);
 			} else {
-				mConnection.connect(WS_ECHO_SERVER, this);
+				this.mServerURI = new URI(WS_ECHO_SERVER);
 			}
+
+			mConnection.connect(mServerURI, this);
 		} catch (WebSocketException e) {
+			String message = e.getLocalizedMessage();
+			Log.e(getClass().getCanonicalName(), message);
+			displayResponse(message);
+		} catch (URISyntaxException e) {
 			String message = e.getLocalizedMessage();
 			Log.e(getClass().getCanonicalName(), message);
 			displayResponse(message);
@@ -142,7 +152,7 @@ public class EchoActivity extends Activity implements ConnectionHandler {
 	public void disconnect() {
 		mConnection.disconnect();
 	}
-	
+
 	public void tlsToggle(MenuItem item) {
 		mTLSEnabled = !mTLSEnabled;
 
@@ -210,7 +220,7 @@ public class EchoActivity extends Activity implements ConnectionHandler {
 	}
 
 	@Override
-	public void onClose(int code, String reason) {
+	public void onClose(WebSocketCloseType code, String reason) {
 		this.mIsConnected = false;
 		this.mIsRepeating = false;
 
@@ -219,7 +229,7 @@ public class EchoActivity extends Activity implements ConnectionHandler {
 		mSendButton.setEnabled(false);
 		mRepeatButton.setEnabled(false);
 
-		String message = "Close: " + code + ", " + reason;
+		String message = "Close: " + code.name() + ", " + reason;
 		Log.d(getClass().getCanonicalName(), message);
 		displayResponse(message);
 	}

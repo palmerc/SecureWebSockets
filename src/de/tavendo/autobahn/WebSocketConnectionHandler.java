@@ -22,7 +22,7 @@ package de.tavendo.autobahn;
  * WebSockets event handler. Users will usually provide an instance of a class
  * derived from this to handle WebSockets received messages and open/close events
  */
-public class WebSocketConnectionHandler implements WebSocket.ConnectionHandler {
+public class WebSocketConnectionHandler implements WebSocket.WebSocketConnectionObserver {
 
    /**
     * Fired when the WebSockets connection has been established.
@@ -38,7 +38,7 @@ public class WebSocketConnectionHandler implements WebSocket.ConnectionHandler {
     * @param code       Close code.
     * @param reason     Close reason (human-readable).
     */
-   public void onClose(int code, String reason) {
+   public void onClose(WebSocketCloseType code, String reason) {
    }
 
    /**
