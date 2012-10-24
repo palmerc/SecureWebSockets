@@ -24,6 +24,8 @@ import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.util.Random;
 
+import javax.net.ssl.SSLEngine;
+
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -44,6 +46,7 @@ public class WebSocketWriter extends Thread {
 	private final Random mRandom = new Random();
 	private final Handler mMaster;
 	private final SocketChannel mSocketChannel;
+	private final SSLEngine mSSLEngine;
 	private final WebSocketOptions mWebSocketOptions;
 	private final ByteBufferOutputStream mBuffer;
 
@@ -59,11 +62,12 @@ public class WebSocketWriter extends Thread {
 	 * @param socket    The socket channel created on foreground thread.
 	 * @param options   WebSockets connection options.
 	 */
-	public WebSocketWriter(Handler master, SocketChannel socket, WebSocketOptions options, String threadName) {
+	public WebSocketWriter(Handler master, SocketChannel socket, SSLEngine sslEngine, WebSocketOptions options, String threadName) {
 		super(threadName);
 
 		this.mMaster = master;
 		this.mSocketChannel = socket;
+		this.mSSLEngine = sslEngine;
 		this.mWebSocketOptions = options;
 		this.mBuffer = new ByteBufferOutputStream(options.getMaxFramePayloadSize() + 14, 4*64*1024);
 

@@ -23,7 +23,9 @@ import java.lang.ref.WeakReference;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.channels.SocketChannel;
+import java.security.NoSuchAlgorithmException;
 
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 
 import android.os.Handler;
@@ -42,25 +44,25 @@ public class WebSocketConnection implements WebSocket {
 
 	private Handler mHandler;
 
-	protected WebSocketReader mWebSocketReader;
-	protected WebSocketWriter mWebSocketWriter;
+	private WebSocketReader mWebSocketReader;
+	private WebSocketWriter mWebSocketWriter;
 
-	protected SocketChannel mSocketChannel;
-	protected SSLEngine mSSLEngine;
+	private SocketChannel mSocketChannel;
+	private SSLEngine mSSLEngine;
 
 	private URI mWebSocketURI;
-	private String[] mWsSubprotocols;
+	private String[] mWebSocketSubprotocols;
 
 	private WebSocket.WebSocketConnectionObserver mWebSocketObserver;
 
-	protected WebSocketOptions mWebSocketOptions;
+	private WebSocketOptions mWebSocketOptions;
 	private boolean mPreviousConnection = false;
 
 
 
 	public WebSocketConnection() {
 		Log.d(TAG, "WebSocket connection created.");
-		
+
 		this.mHandler = new ThreadHandler(this);
 	}
 
@@ -155,7 +157,7 @@ public class WebSocketConnection implements WebSocket {
 				throw new WebSocketException("unsupported scheme for WebSockets URI");
 			}
 
-			this.mWsSubprotocols = subprotocols;
+			this.mWebSocketSubprotocols = subprotocols;
 			this.mWebSocketObserver = connectionObserver;
 			this.mWebSocketOptions = new WebSocketOptions(options);
 
@@ -185,7 +187,7 @@ public class WebSocketConnection implements WebSocket {
 		return false;
 	}
 
-	public void connect() {
+	private void connect() {
 		SocketThread socketThread = new SocketThread(mWebSocketURI, mWebSocketOptions);
 
 		socketThread.start();
@@ -197,6 +199,7 @@ public class WebSocketConnection implements WebSocket {
 		}
 
 		this.mSocketChannel = socketThread.getSocketChannel();
+		this.mSSLEngine = socketThread.getSSLEngine();
 		if (mSocketChannel == null) {
 			onClose(WebSocketCloseNotification.CANNOT_CONNECT, socketThread.getFailureMessage());
 		} else if (mSocketChannel.isConnected()) {
@@ -204,7 +207,7 @@ public class WebSocketConnection implements WebSocket {
 				createReader();
 				createWriter();
 
-				WebSocketMessage.ClientHandshake hs = new WebSocketMessage.ClientHandshake(mWebSocketURI, null, mWsSubprotocols);
+				WebSocketMessage.ClientHandshake hs = new WebSocketMessage.ClientHandshake(mWebSocketURI, null, mWebSocketSubprotocols);
 				mWebSocketWriter.forward(hs);
 			} catch (Exception e) {
 				onClose(WebSocketCloseNotification.INTERNAL_ERROR, e.getLocalizedMessage());
@@ -280,9 +283,9 @@ public class WebSocketConnection implements WebSocket {
 	 * Create WebSockets background writer.
 	 */
 	protected void createWriter() {
-		mWebSocketWriter = new WebSocketWriter(mHandler, mSocketChannel, mWebSocketOptions, WS_WRITER);
+		mWebSocketWriter = new WebSocketWriter(mHandler, mSocketChannel, mSSLEngine, mWebSocketOptions, WS_WRITER);
 		mWebSocketWriter.start();
-		
+
 		synchronized (mWebSocketWriter) {
 			try {
 				mWebSocketWriter.wait();
@@ -299,9 +302,9 @@ public class WebSocketConnection implements WebSocket {
 	 */
 	protected void createReader() {
 
-		mWebSocketReader = new WebSocketReader(mHandler, mSocketChannel, mWebSocketOptions, WS_READER);
+		mWebSocketReader = new WebSocketReader(mHandler, mSocketChannel, mSSLEngine, mWebSocketOptions, WS_READER);
 		mWebSocketReader.start();
-		
+
 		synchronized (mWebSocketReader) {
 			try {
 				mWebSocketReader.wait();
@@ -396,13 +399,14 @@ public class WebSocketConnection implements WebSocket {
 		}
 	}
 
-	
-	
+
+
 	private static class SocketThread extends Thread {	
 		private final URI mWebSocketURI;
 		private final WebSocketOptions mWebSocketOptions;
 
 		private SocketChannel mSocketChannel = null;
+		private SSLEngine mSSLEngine = null;
 		private String mFailureMessage = null;
 
 
@@ -441,6 +445,17 @@ public class WebSocketConnection implements WebSocket {
 				socketChannel.socket().connect(new InetSocketAddress(host, port), mWebSocketOptions.getSocketConnectTimeout());
 				socketChannel.socket().setSoTimeout(mWebSocketOptions.getSocketReceiveTimeout());
 				socketChannel.socket().setTcpNoDelay(mWebSocketOptions.getTcpNoDelay());
+
+				if (mWebSocketURI.getScheme().equals(WSS_URI_SCHEME)) {
+					SSLContext sslContext;
+					try {
+						sslContext = SSLContext.getDefault();
+						this.mSSLEngine = sslContext.createSSLEngine();	
+					} catch (NoSuchAlgorithmException e) {
+						Log.e(TAG, e.getLocalizedMessage());
+					}
+				}
+
 				this.mSocketChannel = socketChannel;
 			} catch (IOException e) {
 				this.mFailureMessage = e.getLocalizedMessage();
@@ -450,13 +465,16 @@ public class WebSocketConnection implements WebSocket {
 		public SocketChannel getSocketChannel() {
 			return mSocketChannel;
 		}
+		public SSLEngine getSSLEngine() {
+			return mSSLEngine;
+		}
 		public String getFailureMessage() {
 			return mFailureMessage;
 		}
 	}
-	
-	
-	
+
+
+
 	private static class ThreadHandler extends Handler {
 		private final WeakReference<WebSocketConnection> mWebSocketConnection;
 

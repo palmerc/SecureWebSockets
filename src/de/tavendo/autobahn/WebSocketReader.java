@@ -23,12 +23,13 @@ import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
-import de.tavendo.autobahn.WebSocketMessage.WebSocketCloseCode;
+import javax.net.ssl.SSLEngine;
 
 import android.os.Handler;
 import android.os.Message;
 import android.util.Log;
 import android.util.Pair;
+import de.tavendo.autobahn.WebSocketMessage.WebSocketCloseCode;
 
 /**
  * WebSocket reader, the receiving leg of a WebSockets connection.
@@ -48,8 +49,9 @@ public class WebSocketReader extends Thread {
 	}
 
 	private final Handler mMaster;
-	private final SocketChannel mSocket;
-	private final WebSocketOptions mOptions;
+	private final SocketChannel mSocketChannel;
+	private final SSLEngine mSSLEngine;
+	private final WebSocketOptions mWebSocketOptions;
 
 	private volatile boolean mStopped = false;
 	
@@ -73,18 +75,19 @@ public class WebSocketReader extends Thread {
 	 * @param master    The message handler of master (foreground thread).
 	 * @param socket    The socket channel created on foreground thread.
 	 */
-	public WebSocketReader(Handler master, SocketChannel socket, WebSocketOptions options, String threadName) {
+	public WebSocketReader(Handler master, SocketChannel socket, SSLEngine sslEngine, WebSocketOptions options, String threadName) {
 		super(threadName);
 
-		mMaster = master;
-		mSocket = socket;
-		mOptions = options;
+		this.mMaster = master;
+		this.mSocketChannel = socket;
+		this.mSSLEngine = sslEngine;
+		this.mWebSocketOptions = options;
 
-		mFrameBuffer = ByteBuffer.allocateDirect(options.getMaxFramePayloadSize() + 14);
-		mMessagePayload = new NoCopyByteArrayOutputStream(options.getMaxMessagePayloadSize());
+		this.mFrameBuffer = ByteBuffer.allocateDirect(options.getMaxFramePayloadSize() + 14);
+		this.mMessagePayload = new NoCopyByteArrayOutputStream(options.getMaxMessagePayloadSize());
 
-		mFrameHeader = null;
-		mState = ReaderState.STATE_CONNECTING;
+		this.mFrameHeader = null;
+		this.mState = ReaderState.STATE_CONNECTING;
 
 		Log.d(TAG, "WebSocket reader created.");
 	}
@@ -220,7 +223,7 @@ public class WebSocketReader extends Thread {
 					}
 
 					// immediately bail out on frame too large
-					if (payload_len > mOptions.getMaxFramePayloadSize()) {
+					if (payload_len > mWebSocketOptions.getMaxFramePayloadSize()) {
 						throw new WebSocketException("frame payload too large");
 					}
 
@@ -338,7 +341,7 @@ public class WebSocketReader extends Thread {
 						// new message started
 						mInsideMessage = true;
 						mMessageOpcode = mFrameHeader.getOpcode();
-						if (mMessageOpcode == 1 && mOptions.getValidateIncomingUtf8()) {
+						if (mMessageOpcode == 1 && mWebSocketOptions.getValidateIncomingUtf8()) {
 							mUTF8Validator.reset();
 						}
 					}
@@ -346,12 +349,12 @@ public class WebSocketReader extends Thread {
 					if (framePayload != null) {
 
 						// immediately bail out on message too large
-						if (mMessagePayload.size() + framePayload.length > mOptions.getMaxMessagePayloadSize()) {
+						if (mMessagePayload.size() + framePayload.length > mWebSocketOptions.getMaxMessagePayloadSize()) {
 							throw new WebSocketException("message payload too large");
 						}
 
 						// validate incoming UTF-8
-						if (mMessageOpcode == 1 && mOptions.getValidateIncomingUtf8() && !mUTF8Validator.validate(framePayload)) {
+						if (mMessageOpcode == 1 && mWebSocketOptions.getValidateIncomingUtf8() && !mUTF8Validator.validate(framePayload)) {
 							throw new WebSocketException("invalid UTF-8 in text message payload");
 						}
 
@@ -365,12 +368,12 @@ public class WebSocketReader extends Thread {
 						if (mMessageOpcode == 1) {
 
 							// verify that UTF-8 ends on codepoint
-							if (mOptions.getValidateIncomingUtf8() && !mUTF8Validator.isValid()) {
+							if (mWebSocketOptions.getValidateIncomingUtf8() && !mUTF8Validator.isValid()) {
 								throw new WebSocketException("UTF-8 text message payload ended within Unicode code point");
 							}
 
 							// deliver text message
-							if (mOptions.getReceiveTextMessagesRaw()) {
+							if (mWebSocketOptions.getReceiveTextMessagesRaw()) {
 
 								// dispatch WS text message as raw (but validated) UTF-8
 								onRawTextMessage(mMessagePayload.toByteArray());
@@ -617,7 +620,7 @@ public class WebSocketReader extends Thread {
 			mFrameBuffer.clear();
 			
 			do {
-				int len = mSocket.read(mFrameBuffer);
+				int len = mSocketChannel.read(mFrameBuffer);
 				if (len > 0) {
 					while (consumeData()) {
 					}
@@ -625,7 +628,7 @@ public class WebSocketReader extends Thread {
 					Log.d(TAG, "run() : ConnectionLost");
 
 					notify(new WebSocketMessage.ConnectionLost());
-					mStopped = true;
+					this.mStopped = true;
 				}
 			} while (!mStopped);
 		} catch (WebSocketException e) {
@@ -644,7 +647,7 @@ public class WebSocketReader extends Thread {
 			// wrap the exception and notify master
 			notify(new WebSocketMessage.Error(e));
 		} finally {
-			mStopped = true;
+			this.mStopped = true;
 		}
 
 		Log.d(TAG, "WebSocket reader ended.");

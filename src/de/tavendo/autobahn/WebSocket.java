@@ -58,8 +58,8 @@ public interface WebSocket {
 		public void onBinaryMessage(byte[] payload);
 	}
 
-	public void connect(URI uri, WebSocketConnectionObserver handler) throws WebSocketException;
-	public void connect(URI uri, WebSocketConnectionObserver handler, WebSocketOptions options) throws WebSocketException;
+	public void connect(URI uri, WebSocketConnectionObserver observer) throws WebSocketException;
+	public void connect(URI uri, WebSocketConnectionObserver observer, WebSocketOptions options) throws WebSocketException;
 	public void disconnect();
 	public boolean isConnected();
 	public void sendBinaryMessage(byte[] payload);
