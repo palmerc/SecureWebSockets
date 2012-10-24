@@ -290,7 +290,7 @@ public class WebSocketConnection implements WebSocket {
 			}
 		}
 
-		Log.d(TAG, "WS writer created and started");
+		Log.d(TAG, "WebSocket writer created and started.");
 	}
 
 
@@ -309,7 +309,7 @@ public class WebSocketConnection implements WebSocket {
 			}
 		}
 
-		Log.d(TAG, "WS reader created and started");
+		Log.d(TAG, "WebSocket reader created and started.");
 	}
 
 
