@@ -38,7 +38,7 @@ public class WebSocketConnectionHandler implements WebSocket.WebSocketConnection
     * @param code       Close code.
     * @param reason     Close reason (human-readable).
     */
-   public void onClose(WebSocketCloseType code, String reason) {
+   public void onClose(WebSocketCloseNotification code, String reason) {
    }
 
    /**

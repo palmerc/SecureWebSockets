@@ -20,17 +20,35 @@ package de.tavendo.autobahn;
 
 import java.net.URI;
 
+import de.tavendo.autobahn.WebSocket.WebSocketConnectionObserver.WebSocketCloseNotification;
+
 /**
  * WebSockets message classes.
  * The master thread and the background reader/writer threads communicate using these messages
  * for WebSockets connections.
  */
 public class WebSocketMessage {
+	public static class WebSocketCloseCode {
+		public static final int NORMAL = 1000;
+		public static final int ENDPOINT_GOING_AWAY = 1001;		 
+		public static final int ENDPOINT_PROTOCOL_ERROR = 1002;
+		public static final int ENDPOINT_UNSUPPORTED_DATA_TYPE = 1003;
+		public static final int RESERVED = 1004;
+		public static final int RESERVED_NO_STATUS = 1005;
+		public static final int RESERVED_NO_CLOSING_HANDSHAKE = 1006;
+		public static final int ENDPOINT_BAD_DATA = 1007;
+		public static final int POLICY_VIOLATION = 1008;
+		public static final int MESSAGE_TOO_BIG = 1009;
+		public static final int ENDPOINT_NEEDS_EXTENSION = 1010;
+		public static final int UNEXPECTED_CONDITION = 1011;
+		public static final int RESERVED_TLS_REQUIRED = 1015;
+	}
+
 
 	/// Base message class.
 	public static class Message {
 	}
-	
+
 	/// Quite background thread.
 	public static class Quit extends Message {
 	}
@@ -41,22 +59,22 @@ public class WebSocketMessage {
 		private final URI mOrigin;
 		private final String[] mSubprotocols;
 
-		
-		
+
+
 		ClientHandshake(URI uri) {
 			this.mURI = uri;
 			this.mOrigin = null;
 			this.mSubprotocols = null;
 		}
-				
+
 		ClientHandshake(URI uri, URI origin, String[] subprotocols) {
 			this.mURI = uri;
 			this.mOrigin = origin;
 			this.mSubprotocols = subprotocols;
 		}
-		
-		
-		
+
+
+
 		public URI getURI() {
 			return mURI;
 		}
@@ -67,7 +85,7 @@ public class WebSocketMessage {
 			return mSubprotocols;
 		}
 	}
-	
+
 	/// Initial WebSockets handshake (server response).
 	public static class ServerHandshake extends Message {
 		public boolean mSuccess;
@@ -144,12 +162,12 @@ public class WebSocketMessage {
 
 	/// WebSockets close to send or received.
 	public static class Close extends Message {
+		private int mCode;
+		private String mReason;
 
-		public int mCode;
-		public String mReason;
 
 		Close() {
-			mCode = -1;
+			mCode = WebSocketCloseCode.UNEXPECTED_CONDITION;
 			mReason = null;
 		}
 
@@ -161,6 +179,14 @@ public class WebSocketMessage {
 		Close(int code, String reason) {
 			mCode = code;
 			mReason = reason;
+		}
+
+
+		public int getCode() {
+			return mCode;
+		}
+		public String getReason() {
+			return mReason;
 		}
 	}
 

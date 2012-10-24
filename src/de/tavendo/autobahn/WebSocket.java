@@ -3,12 +3,13 @@ package de.tavendo.autobahn;
 import java.net.URI;
 
 public interface WebSocket {
+	public static final String UTF8_ENCODING = "UTF-8";
 
 	/**
 	 * Session handler for WebSocket sessions.
 	 */
 	public interface WebSocketConnectionObserver {
-		public enum WebSocketCloseType {
+		public static enum WebSocketCloseNotification {
 			NORMAL,
 			CANNOT_CONNECT, 
 			CONNECTION_LOST, 
@@ -31,7 +32,7 @@ public interface WebSocket {
 		 * @param code       Close code.
 		 * @param reason     Close reason (human-readable).
 		 */
-		public void onClose(WebSocketCloseType code, String reason);
+		public void onClose(WebSocketCloseNotification code, String reason);
 
 		/**
 		 * Fired when a text message has been received (and text

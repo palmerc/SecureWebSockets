@@ -145,7 +145,7 @@ public class WebSocketWriter extends Handler {
 		if (path == null || path.length() == 0) {
 			path = "/";
 		}
-		
+
 		mBuffer.write("GET " + path + " HTTP/1.1");
 		mBuffer.crlf();
 		mBuffer.write("Host: " + message.getURI().getHost());
@@ -184,12 +184,12 @@ public class WebSocketWriter extends Handler {
 	 */
 	private void sendClose(WebSocketMessage.Close message) throws IOException, WebSocketException {
 
-		if (message.mCode > 0) {
+		if (message.getCode() > 0) {
 
 			byte[] payload = null;
 
-			if (message.mReason != null && !message.mReason.equals("")) {
-				byte[] pReason = message.mReason.getBytes("UTF-8");
+			if (message.getReason() != null && !message.getReason().equals("")) {
+				byte[] pReason = message.getReason().getBytes(WebSocket.UTF8_ENCODING);
 				payload = new byte[2 + pReason.length];
 				for (int i = 0; i < pReason.length; ++i) {
 					payload[i + 2] = pReason[i];
@@ -202,13 +202,11 @@ public class WebSocketWriter extends Handler {
 				throw new WebSocketException("close payload exceeds 125 octets");
 			}
 
-			payload[0] = (byte)((message.mCode >> 8) & 0xff);
-			payload[1] = (byte)(message.mCode & 0xff);
+			payload[0] = (byte)((message.getCode() >> 8) & 0xff);
+			payload[1] = (byte)(message.getCode() & 0xff);
 
 			sendFrame(8, true, payload);
-
 		} else {
-
 			sendFrame(8, true, null);
 		}
 	}
@@ -252,7 +250,7 @@ public class WebSocketWriter extends Handler {
 	 * Send WebSockets text message.
 	 */
 	private void sendTextMessage(WebSocketMessage.TextMessage message) throws IOException, WebSocketException {
-		byte[] payload = message.mPayload.getBytes("UTF-8");
+		byte[] payload = message.mPayload.getBytes(WebSocket.UTF8_ENCODING);
 		if (payload.length > mOptions.getMaxMessagePayloadSize()) {
 			throw new WebSocketException("message payload exceeds payload limit");
 		}
@@ -464,7 +462,6 @@ public class WebSocketWriter extends Handler {
 	 * @param msg      Message from foreground thread to process.
 	 */
 	protected void processAppMessage(Object msg) throws WebSocketException, IOException {
-
 		throw new WebSocketException("unknown message received by WebSocketWriter");
 	}
 }

@@ -25,17 +25,20 @@ import java.nio.channels.SocketChannel;
 
 import javax.net.ssl.SSLEngine;
 
-import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
 import android.util.Log;
-import de.tavendo.autobahn.WebSocket.WebSocketConnectionObserver.WebSocketCloseType;
+import de.tavendo.autobahn.WebSocket.WebSocketConnectionObserver.WebSocketCloseNotification;
+import de.tavendo.autobahn.WebSocketMessage.WebSocketCloseCode;
 
 public class WebSocketConnection implements WebSocket {
 	private static final String TAG = WebSocketConnection.class.getName();
 	private static final String WS_URI_SCHEME = "ws";
 	private static final String WSS_URI_SCHEME = "wss";
+	private static final String WS_CONNECTOR = "WebSocketConnector";
+	private static final String WS_WRITER = "WebSocketWriter";
+	private static final String WS_READER = "WebSocketReader";
 
 	protected Handler mHandler;
 
@@ -87,7 +90,7 @@ public class WebSocketConnection implements WebSocket {
 
 
 
-	private void failConnection(WebSocketCloseType code, String reason) {
+	private void failConnection(WebSocketCloseNotification code, String reason) {
 		Log.d(TAG, "fail connection [code = " + code + ", reason = " + reason);
 
 		if (mWebSocketReader != null) {
@@ -156,15 +159,15 @@ public class WebSocketConnection implements WebSocket {
 			this.mWebSocketObserver = connectionObserver;
 			this.mOptions = new WebSocketOptions(options);
 
-			new WebSocketConnector().execute();
+			connect();
 		}
 	}
 
 	public void disconnect() {
 		if (mWebSocketWriter != null) {
-			mWebSocketWriter.forward(new WebSocketMessage.Close(1000));
+			mWebSocketWriter.forward(new WebSocketMessage.Close());
 		} else {
-			Log.d(TAG, "could not send Close .. writer already NULL");
+			Log.d(TAG, "Could not send WebSocket Close .. writer already null");
 		}
 
 		this.mPreviousConnection = false;
@@ -176,12 +179,41 @@ public class WebSocketConnection implements WebSocket {
 	 */
 	public boolean reconnect() {
 		if (!isConnected() && (mWebSocketURI != null)) {
-			new WebSocketConnector().execute();
+			connect();
 			return true;
 		}
 		return false;
 	}
 
+	public void connect() {
+		SocketThread socketThread = new SocketThread(mWebSocketURI, mOptions);
+		
+		socketThread.start();
+		synchronized (socketThread) {
+			try {
+				socketThread.wait();
+			} catch (InterruptedException e) {
+			}
+		}
+		
+		this.mTransportChannel = socketThread.getSocketChannel();
+		if (mTransportChannel == null) {
+			onClose(WebSocketCloseNotification.CANNOT_CONNECT, socketThread.getFailureMessage());
+		} else if (mTransportChannel.isConnected()) {
+			try {
+				createReader();
+				createWriter();
+
+				WebSocketMessage.ClientHandshake hs = new WebSocketMessage.ClientHandshake(mWebSocketURI, null, mWsSubprotocols);
+				mWebSocketWriter.forward(hs);
+			} catch (Exception e) {
+				onClose(WebSocketCloseNotification.INTERNAL_ERROR, e.getLocalizedMessage());
+			}
+		} else {
+			onClose(WebSocketCloseNotification.CANNOT_CONNECT, "could not connect to WebSockets server");
+		}
+	}
+	
 	/**
 	 * Perform reconnection
 	 * 
@@ -215,17 +247,17 @@ public class WebSocketConnection implements WebSocket {
 	 * @param code       Close code.
 	 * @param reason     Close reason (human-readable).
 	 */
-	private void onClose(WebSocketCloseType code, String reason) {
+	private void onClose(WebSocketCloseNotification code, String reason) {
 		boolean reconnecting = false;
 
-		if ((code == WebSocketCloseType.CANNOT_CONNECT) || (code == WebSocketCloseType.CONNECTION_LOST)) {
+		if ((code == WebSocketCloseNotification.CANNOT_CONNECT) || (code == WebSocketCloseNotification.CONNECTION_LOST)) {
 			reconnecting = scheduleReconnect();
 		}
 
 		if (mWebSocketObserver != null) {
 			try {
 				if (reconnecting) {
-					mWebSocketObserver.onClose(WebSocketConnectionObserver.WebSocketCloseType.RECONNECT, reason);
+					mWebSocketObserver.onClose(WebSocketConnectionObserver.WebSocketCloseNotification.RECONNECT, reason);
 				} else {
 					mWebSocketObserver.onClose(code, reason);
 				}
@@ -298,9 +330,9 @@ public class WebSocketConnection implements WebSocket {
 
 					WebSocketMessage.Close close = (WebSocketMessage.Close) msg.obj;
 
-					Log.d(TAG, "WebSockets Close received (" + close.mCode + " - " + close.mReason + ")");
+					Log.d(TAG, "WebSockets Close received (" + close.getCode() + " - " + close.getReason() + ")");
 
-					mWebSocketWriter.forward(new WebSocketMessage.Close(1000));
+					mWebSocketWriter.forward(new WebSocketMessage.Close(WebSocketCloseCode.NORMAL));
 
 				} else if (msg.obj instanceof WebSocketMessage.ServerHandshake) {
 
@@ -320,24 +352,25 @@ public class WebSocketConnection implements WebSocket {
 				} else if (msg.obj instanceof WebSocketMessage.ConnectionLost) {
 
 					@SuppressWarnings("unused")
-					WebSocketMessage.ConnectionLost connnectionLost = (WebSocketMessage.ConnectionLost) msg.obj;
-					failConnection(WebSocketCloseType.CONNECTION_LOST, "WebSockets connection lost");
+					WebSocketMessage.ConnectionLost connectionLost = (WebSocketMessage.ConnectionLost) msg.obj;
+//					connectionLost.
+					failConnection(WebSocketCloseNotification.CONNECTION_LOST, "WebSockets connection lost");
 
 				} else if (msg.obj instanceof WebSocketMessage.ProtocolViolation) {
 
 					@SuppressWarnings("unused")
 					WebSocketMessage.ProtocolViolation protocolViolation = (WebSocketMessage.ProtocolViolation) msg.obj;
-					failConnection(WebSocketCloseType.PROTOCOL_ERROR, "WebSockets protocol violation");
+					failConnection(WebSocketCloseNotification.PROTOCOL_ERROR, "WebSockets protocol violation");
 
 				} else if (msg.obj instanceof WebSocketMessage.Error) {
 
 					WebSocketMessage.Error error = (WebSocketMessage.Error) msg.obj;
-					failConnection(WebSocketCloseType.INTERNAL_ERROR, "WebSockets internal error (" + error.mException.toString() + ")");
+					failConnection(WebSocketCloseNotification.INTERNAL_ERROR, "WebSockets internal error (" + error.mException.toString() + ")");
 
 				} else if (msg.obj instanceof WebSocketMessage.ServerError) {
 
 					WebSocketMessage.ServerError error = (WebSocketMessage.ServerError) msg.obj;
-					failConnection(WebSocketCloseType.SERVER_ERROR, "Server error " + error.mStatusCode + " (" + error.mStatusMessage + ")");
+					failConnection(WebSocketCloseNotification.SERVER_ERROR, "Server error " + error.mStatusCode + " (" + error.mStatusMessage + ")");
 
 				} else {
 
@@ -358,7 +391,7 @@ public class WebSocketConnection implements WebSocket {
 	 */
 	protected void createWriter() {
 
-		mWriterThread = new HandlerThread("WebSocketWriter");
+		mWriterThread = new HandlerThread(WS_WRITER);
 		mWriterThread.start();
 		mWebSocketWriter = new WebSocketWriter(mWriterThread.getLooper(), mHandler, mTransportChannel, mOptions);
 
@@ -371,24 +404,42 @@ public class WebSocketConnection implements WebSocket {
 	 */
 	protected void createReader() {
 
-		mWebSocketReader = new WebSocketReader(mHandler, mTransportChannel, mOptions, "WebSocketReader");
+		mWebSocketReader = new WebSocketReader(mHandler, mTransportChannel, mOptions, WS_READER);
 		mWebSocketReader.start();
 
 		Log.d(TAG, "WS reader created and started");
 	}
-
-
-
-	//
-	// AsyncTask for connecting the socket.
-	private class WebSocketConnector extends AsyncTask<Void, Void, String> {
-		private static final String THREAD_NAME = "WebSocketConnector";
-
+	
+	
+	
+	private static class SocketThread extends Thread {	
+		private final URI mWebSocketURI;
+		private final WebSocketOptions mWebSocketOptions;
+		
+		private SocketChannel mSocketChannel = null;
+		private String mFailureMessage = null;
+		
+		
+		
+		public SocketThread(URI uri, WebSocketOptions options) {
+			this.setName(WS_CONNECTOR);
+			this.mWebSocketURI = uri;
+			this.mWebSocketOptions = options;
+		}
+		
+		
+		
 		@Override
-		protected String doInBackground(Void... params) {
+		public void run() {
+			synchronized (this) {
+				connect();
+				notifyAll();
+			}
+		}
 
-			Thread.currentThread().setName(THREAD_NAME);
 
+
+		public void connect() {	
 			try {
 				String host = mWebSocketURI.getHost();
 				int port = mWebSocketURI.getPort();
@@ -400,42 +451,21 @@ public class WebSocketConnection implements WebSocket {
 					}
 				}
 
-				mTransportChannel = SocketChannel.open();
-				mTransportChannel.socket().connect(new InetSocketAddress(host, port), mOptions.getSocketConnectTimeout());
-				mTransportChannel.socket().setSoTimeout(mOptions.getSocketReceiveTimeout());
-				mTransportChannel.socket().setTcpNoDelay(mOptions.getTcpNoDelay());
-
-				return null;
-
+				SocketChannel socketChannel = SocketChannel.open();
+				socketChannel.socket().connect(new InetSocketAddress(host, port), mWebSocketOptions.getSocketConnectTimeout());
+				socketChannel.socket().setSoTimeout(mWebSocketOptions.getSocketReceiveTimeout());
+				socketChannel.socket().setTcpNoDelay(mWebSocketOptions.getTcpNoDelay());
+				this.mSocketChannel = socketChannel;
 			} catch (IOException e) {
-
-				return e.getMessage();
+				this.mFailureMessage = e.getLocalizedMessage();
 			}
 		}
-
-		@Override
-		protected void onPostExecute(String reason) {
-
-			if (reason != null) {
-
-				onClose(WebSocketCloseType.CANNOT_CONNECT, reason);
-			} else if (mTransportChannel.isConnected()) {
-
-				try {
-
-					createReader();
-					createWriter();
-
-					WebSocketMessage.ClientHandshake hs = new WebSocketMessage.ClientHandshake(mWebSocketURI, null, mWsSubprotocols);
-					mWebSocketWriter.forward(hs);
-				} catch (Exception e) {
-
-					onClose(WebSocketCloseType.INTERNAL_ERROR, e.getMessage());
-				}
-			} else {
-
-				onClose(WebSocketCloseType.CANNOT_CONNECT, "could not connect to WebSockets server");
-			}
+		
+		public SocketChannel getSocketChannel() {
+			return mSocketChannel;
+		}
+		public String getFailureMessage() {
+			return mFailureMessage;
 		}
 	}
 }

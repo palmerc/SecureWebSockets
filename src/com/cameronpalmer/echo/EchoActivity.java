@@ -220,7 +220,7 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 	}
 
 	@Override
-	public void onClose(WebSocketCloseType code, String reason) {
+	public void onClose(WebSocketCloseNotification code, String reason) {
 		this.mIsConnected = false;
 		this.mIsRepeating = false;
 
