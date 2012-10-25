@@ -42,7 +42,7 @@ public class WebSocketConnection implements WebSocket {
 	private static final String WS_WRITER = "WebSocketWriter";
 	private static final String WS_READER = "WebSocketReader";
 
-	private Handler mHandler;
+	private final Handler mHandler;
 
 	private WebSocketReader mWebSocketReader;
 	private WebSocketWriter mWebSocketWriter;
@@ -53,7 +53,7 @@ public class WebSocketConnection implements WebSocket {
 	private URI mWebSocketURI;
 	private String[] mWebSocketSubprotocols;
 
-	private WebSocket.WebSocketConnectionObserver mWebSocketObserver;
+	private WeakReference<WebSocket.WebSocketConnectionObserver> mWebSocketConnectionObserver;
 
 	private WebSocketOptions mWebSocketOptions;
 	private boolean mPreviousConnection = false;
@@ -136,12 +136,12 @@ public class WebSocketConnection implements WebSocket {
 
 
 
-	public void connect(URI webSocketURI, WebSocket.WebSocketConnectionObserver handler) throws WebSocketException {
-		connect(webSocketURI, handler, new WebSocketOptions());
+	public void connect(URI webSocketURI, WebSocket.WebSocketConnectionObserver connectionObserver) throws WebSocketException {
+		connect(webSocketURI, connectionObserver, new WebSocketOptions());
 	}
 
-	public void connect(URI webSocketURI, WebSocket.WebSocketConnectionObserver handler, WebSocketOptions options) throws WebSocketException {
-		connect(webSocketURI, null, handler, options);
+	public void connect(URI webSocketURI, WebSocket.WebSocketConnectionObserver connectionObserver, WebSocketOptions options) throws WebSocketException {
+		connect(webSocketURI, null, connectionObserver, options);
 	}
 
 	public void connect(URI webSocketURI, String[] subprotocols, WebSocket.WebSocketConnectionObserver connectionObserver, WebSocketOptions options) throws WebSocketException {
@@ -158,7 +158,7 @@ public class WebSocketConnection implements WebSocket {
 			}
 
 			this.mWebSocketSubprotocols = subprotocols;
-			this.mWebSocketObserver = connectionObserver;
+			this.mWebSocketConnectionObserver = new WeakReference<WebSocket.WebSocketConnectionObserver>(connectionObserver);
 			this.mWebSocketOptions = new WebSocketOptions(options);
 
 			connect();
@@ -207,8 +207,8 @@ public class WebSocketConnection implements WebSocket {
 				createReader();
 				createWriter();
 
-				WebSocketMessage.ClientHandshake hs = new WebSocketMessage.ClientHandshake(mWebSocketURI, null, mWebSocketSubprotocols);
-				mWebSocketWriter.forward(hs);
+				WebSocketMessage.ClientHandshake clientHandshake = new WebSocketMessage.ClientHandshake(mWebSocketURI, null, mWebSocketSubprotocols);
+				mWebSocketWriter.forward(clientHandshake);
 			} catch (Exception e) {
 				onClose(WebSocketCloseNotification.INTERNAL_ERROR, e.getLocalizedMessage());
 			}
@@ -257,12 +257,13 @@ public class WebSocketConnection implements WebSocket {
 			reconnecting = scheduleReconnect();
 		}
 
-		if (mWebSocketObserver != null) {
+		WebSocket.WebSocketConnectionObserver webSocketObserver = mWebSocketConnectionObserver.get();
+		if (webSocketObserver != null) {
 			try {
 				if (reconnecting) {
-					mWebSocketObserver.onClose(WebSocketConnectionObserver.WebSocketCloseNotification.RECONNECT, reason);
+					webSocketObserver.onClose(WebSocketConnectionObserver.WebSocketCloseNotification.RECONNECT, reason);
 				} else {
-					mWebSocketObserver.onClose(code, reason);
+					webSocketObserver.onClose(code, reason);
 				}
 			} catch (Exception e) {
 				e.printStackTrace();
@@ -316,11 +317,13 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	private void handleMessage(Message message) {
+		WebSocket.WebSocketConnectionObserver webSocketObserver = mWebSocketConnectionObserver.get();
+
 		if (message.obj instanceof WebSocketMessage.TextMessage) {
 			WebSocketMessage.TextMessage textMessage = (WebSocketMessage.TextMessage) message.obj;
 
-			if (mWebSocketObserver != null) {
-				mWebSocketObserver.onTextMessage(textMessage.mPayload);
+			if (webSocketObserver != null) {
+				webSocketObserver.onTextMessage(textMessage.mPayload);
 			} else {
 				Log.d(TAG, "could not call onTextMessage() .. handler already NULL");
 			}
@@ -328,8 +331,8 @@ public class WebSocketConnection implements WebSocket {
 		} else if (message.obj instanceof WebSocketMessage.RawTextMessage) {
 			WebSocketMessage.RawTextMessage rawTextMessage = (WebSocketMessage.RawTextMessage) message.obj;
 
-			if (mWebSocketObserver != null) {
-				mWebSocketObserver.onRawTextMessage(rawTextMessage.mPayload);
+			if (webSocketObserver != null) {
+				webSocketObserver.onRawTextMessage(rawTextMessage.mPayload);
 			} else {
 				Log.d(TAG, "could not call onRawTextMessage() .. handler already NULL");
 			}
@@ -337,8 +340,8 @@ public class WebSocketConnection implements WebSocket {
 		} else if (message.obj instanceof WebSocketMessage.BinaryMessage) {
 			WebSocketMessage.BinaryMessage binaryMessage = (WebSocketMessage.BinaryMessage) message.obj;
 
-			if (mWebSocketObserver != null) {
-				mWebSocketObserver.onBinaryMessage(binaryMessage.mPayload);
+			if (webSocketObserver != null) {
+				webSocketObserver.onBinaryMessage(binaryMessage.mPayload);
 			} else {
 				Log.d(TAG, "could not call onBinaryMessage() .. handler already NULL");
 			}
@@ -369,8 +372,8 @@ public class WebSocketConnection implements WebSocket {
 			Log.d(TAG, "opening handshake received");
 
 			if (serverHandshake.mSuccess) {
-				if (mWebSocketObserver != null) {
-					mWebSocketObserver.onOpen();
+				if (webSocketObserver != null) {
+					webSocketObserver.onOpen();
 				} else {
 					Log.d(TAG, "could not call onOpen() .. handler already NULL");
 				}
