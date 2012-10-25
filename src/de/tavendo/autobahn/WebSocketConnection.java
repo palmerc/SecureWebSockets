@@ -454,6 +454,8 @@ public class WebSocketConnection implements WebSocket {
 					try {
 						sslContext = SSLContext.getDefault();
 						this.mSSLEngine = sslContext.createSSLEngine();	
+						mSSLEngine.setUseClientMode(true);
+						mSSLEngine.beginHandshake();
 					} catch (NoSuchAlgorithmException e) {
 						Log.e(TAG, e.getLocalizedMessage());
 					}

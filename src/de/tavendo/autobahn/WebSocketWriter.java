@@ -21,10 +21,12 @@ package de.tavendo.autobahn;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.net.SocketException;
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.Random;
 
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLEngineResult;
 
 import android.os.Handler;
 import android.os.Looper;
@@ -42,13 +44,16 @@ import android.util.Log;
  */
 public class WebSocketWriter extends Thread {
 	private static final String TAG = WebSocketWriter.class.getName();
+	private static final int WEB_SOCKETS_VERSION = 13;
+	private static final String CRLF = "\r\n";
 
 	private final Random mRandom = new Random();
-	private final Handler mMaster;
+	private final Handler mWebSocketConnectionHandler;
 	private final SocketChannel mSocketChannel;
 	private final SSLEngine mSSLEngine;
 	private final WebSocketOptions mWebSocketOptions;
-	private final ByteBufferOutputStream mBuffer;
+	private final ByteBuffer mApplicationBuffer;
+	private final ByteBuffer mNetworkBuffer;
 
 	private Handler mHandler;
 
@@ -65,11 +70,12 @@ public class WebSocketWriter extends Thread {
 	public WebSocketWriter(Handler master, SocketChannel socket, SSLEngine sslEngine, WebSocketOptions options, String threadName) {
 		super(threadName);
 
-		this.mMaster = master;
+		this.mWebSocketConnectionHandler = master;
 		this.mSocketChannel = socket;
 		this.mSSLEngine = sslEngine;
 		this.mWebSocketOptions = options;
-		this.mBuffer = new ByteBufferOutputStream(options.getMaxFramePayloadSize() + 14, 4*64*1024);
+		this.mApplicationBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
+		this.mNetworkBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
 
 		Log.d(TAG, "WebSocket writer created.");
 	}
@@ -98,9 +104,9 @@ public class WebSocketWriter extends Thread {
 	 * @param message       Message to send to master.
 	 */
 	private void notify(Object message) {
-		Message msg = mMaster.obtainMessage();
+		Message msg = mWebSocketConnectionHandler.obtainMessage();
 		msg.obj = message;
-		mMaster.sendMessage(msg);
+		mWebSocketConnectionHandler.sendMessage(msg);
 	}
 
 
@@ -137,36 +143,27 @@ public class WebSocketWriter extends Thread {
 			path = "/";
 		}
 
-		mBuffer.write("GET " + path + " HTTP/1.1");
-		mBuffer.crlf();
-		mBuffer.write("Host: " + message.getURI().getHost());
-		mBuffer.crlf();
-		mBuffer.write("Upgrade: WebSocket");
-		mBuffer.crlf();
-		mBuffer.write("Connection: Upgrade");
-		mBuffer.crlf();
-
-		mBuffer.write("Sec-WebSocket-Key: " + newHandshakeKey());
-		mBuffer.crlf();
-
+		mApplicationBuffer.put(("GET " + path + " HTTP/1.1" + CRLF).getBytes());
+		mApplicationBuffer.put(("Host: " + message.getURI().getHost() + CRLF).getBytes());
+		mApplicationBuffer.put(("Upgrade: WebSocket" + CRLF).getBytes());
+		mApplicationBuffer.put(("Connection: Upgrade" + CRLF).getBytes());
+		mApplicationBuffer.put(("Sec-WebSocket-Key: " + newHandshakeKey() + CRLF).getBytes());
 
 		if (message.getOrigin() != null) {
-			mBuffer.write("Origin: " + message.getOrigin().toString());
-			mBuffer.crlf();
+			mApplicationBuffer.put(("Origin: " + message.getOrigin().toString() + CRLF).getBytes());
 		}
 
 		if (message.getSubprotocols() != null && message.getSubprotocols().length > 0) {
-			mBuffer.write("Sec-WebSocket-Protocol: ");
+			mApplicationBuffer.put(("Sec-WebSocket-Protocol: ").getBytes());
 			for (int i = 0; i < message.getSubprotocols().length; ++i) {
-				mBuffer.write(message.getSubprotocols()[i]);
-				mBuffer.write(", ");
+				mApplicationBuffer.put((message.getSubprotocols()[i]).getBytes());
+				mApplicationBuffer.put((", ").getBytes());
 			}
-			mBuffer.crlf();
+			mApplicationBuffer.put((CRLF).getBytes());
 		}
 
-		mBuffer.write("Sec-WebSocket-Version: 13");
-		mBuffer.crlf();
-		mBuffer.crlf();
+		mApplicationBuffer.put(("Sec-WebSocket-Version: " + WEB_SOCKETS_VERSION + CRLF).getBytes());
+		mApplicationBuffer.put((CRLF).getBytes());
 	}
 
 
@@ -286,14 +283,13 @@ public class WebSocketWriter extends Thread {
 	 * @param length     Length of the chunk within payload to send.
 	 */
 	protected void sendFrame(int opcode, boolean fin, byte[] payload, int offset, int length) throws IOException {
-
 		// first octet
 		byte b0 = 0;
 		if (fin) {
 			b0 |= (byte) (1 << 7);
 		}
 		b0 |= (byte) opcode;
-		mBuffer.write(b0);
+		mApplicationBuffer.put(b0);
 
 		// second octet
 		byte b1 = 0;
@@ -306,16 +302,15 @@ public class WebSocketWriter extends Thread {
 		// extended payload length
 		if (len <= 125) {
 			b1 |= (byte) len;
-			mBuffer.write(b1);
+			mApplicationBuffer.put(b1);
 		} else if (len <= 0xffff) {
 			b1 |= (byte) (126 & 0xff);
-			mBuffer.write(b1);
-			mBuffer.write(new byte[] {(byte)((len >> 8) & 0xff),
-					(byte)(len & 0xff)});
+			mApplicationBuffer.put(b1);
+			mApplicationBuffer.put(new byte[] {(byte)((len >> 8) & 0xff), (byte)(len & 0xff)});
 		} else {
 			b1 |= (byte) (127 & 0xff);
-			mBuffer.write(b1);
-			mBuffer.write(new byte[] {(byte)((len >> 56) & 0xff),
+			mApplicationBuffer.put(b1);
+			mApplicationBuffer.put(new byte[] {(byte)((len >> 56) & 0xff),
 					(byte)((len >> 48) & 0xff),
 					(byte)((len >> 40) & 0xff),
 					(byte)((len >> 32) & 0xff),
@@ -329,10 +324,10 @@ public class WebSocketWriter extends Thread {
 		if (mWebSocketOptions.getMaskClientFrames()) {
 			// a mask is always needed, even without payload
 			mask = newFrameMask();
-			mBuffer.write(mask[0]);
-			mBuffer.write(mask[1]);
-			mBuffer.write(mask[2]);
-			mBuffer.write(mask[3]);
+			mApplicationBuffer.put(mask[0]);
+			mApplicationBuffer.put(mask[1]);
+			mApplicationBuffer.put(mask[2]);
+			mApplicationBuffer.put(mask[3]);
 		}
 
 		if (len > 0) {
@@ -343,7 +338,7 @@ public class WebSocketWriter extends Thread {
 					payload[i + offset] ^= mask[i % 4];
 				}
 			}
-			mBuffer.write(payload, offset, length);
+			mApplicationBuffer.put(payload, offset, length);
 		}
 	}
 
@@ -382,11 +377,21 @@ public class WebSocketWriter extends Thread {
 
 	public void writeMessageToBuffer(Message message) {
 		try {
-			mBuffer.clear();
+			mApplicationBuffer.clear();
 			processMessage(message.obj);
-			mBuffer.flip();
-			while (mBuffer.remaining() > 0) {
-				mSocketChannel.write(mBuffer.getBuffer());
+			mApplicationBuffer.flip();
+
+			mNetworkBuffer.clear();
+			if (mSSLEngine == null) {
+				mNetworkBuffer.put(mApplicationBuffer);
+			} else {
+				SSLEngineResult result = mSSLEngine.wrap(mApplicationBuffer, mNetworkBuffer);
+				Log.d(TAG, result.getHandshakeStatus().name());
+			}
+			mNetworkBuffer.flip();
+
+			while (mNetworkBuffer.remaining() > 0) {
+				mSocketChannel.write(mNetworkBuffer);
 			}
 		} catch (SocketException e) {
 			Log.d(TAG, "run() : SocketException (" + e.toString() + ")");
@@ -394,7 +399,7 @@ public class WebSocketWriter extends Thread {
 			notify(new WebSocketMessage.ConnectionLost());
 		} catch (Exception e) {
 			e.printStackTrace();
-			
+
 			notify(new WebSocketMessage.Error(e));
 		}
 	}
@@ -417,13 +422,13 @@ public class WebSocketWriter extends Thread {
 		Looper.prepare();
 
 		this.mHandler = new ThreadHandler(this);
-		
+
 		synchronized (this) {
 			Log.d(TAG, "WebSocker writer running.");
 
 			notifyAll();
 		}
-		
+
 		Looper.loop();
 	}
 
