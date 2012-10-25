@@ -182,7 +182,7 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 						repeat();
 					}
 				}
-			}, 1000);
+			}, 1000); // 1 second
 		}
 	}
 
