@@ -20,15 +20,14 @@ package de.tavendo.autobahn;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URI;
-import java.nio.channels.SocketChannel;
-import java.security.NoSuchAlgorithmException;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
+import javax.net.SocketFactory;
 
+import android.net.SSLCertificateSocketFactory;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.util.Log;
 import de.tavendo.autobahn.WebSocket.WebSocketConnectionObserver.WebSocketCloseNotification;
@@ -38,7 +37,6 @@ public class WebSocketConnection implements WebSocket {
 	private static final String TAG = WebSocketConnection.class.getName();
 	private static final String WS_URI_SCHEME = "ws";
 	private static final String WSS_URI_SCHEME = "wss";
-	private static final String WS_CONNECTOR = "WebSocketConnector";
 	private static final String WS_WRITER = "WebSocketWriter";
 	private static final String WS_READER = "WebSocketReader";
 
@@ -47,8 +45,8 @@ public class WebSocketConnection implements WebSocket {
 	private WebSocketReader mWebSocketReader;
 	private WebSocketWriter mWebSocketWriter;
 
-	private SocketChannel mSocketChannel;
-	private SSLEngine mSSLEngine;
+	private Socket mSocket;
+	private SocketThread mSocketThread;
 
 	private URI mWebSocketURI;
 	private String[] mWebSocketSubprotocols;
@@ -87,7 +85,7 @@ public class WebSocketConnection implements WebSocket {
 
 
 	public boolean isConnected() {
-		return mSocketChannel != null && mSocketChannel.isConnected();
+		return mSocket != null && mSocket.isConnected();
 	}
 
 
@@ -119,15 +117,25 @@ public class WebSocketConnection implements WebSocket {
 			Log.d(TAG, "mWriter already NULL");
 		}
 
-		if (mSocketChannel != null) {
-			try {
-				mSocketChannel.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+		if (mSocket != null) {
+			mSocketThread.getHandler().post(new Runnable() {
+
+				@Override
+				public void run() {
+					mSocketThread.stopConnection();
+				}
+			});
 		} else {
 			Log.d(TAG, "mTransportChannel already NULL");
 		}
+		
+		mSocketThread.getHandler().post(new Runnable() {
+			
+			@Override
+			public void run() {
+				Looper.myLooper().quit();
+			}
+		});
 
 		onClose(code, reason);
 
@@ -145,7 +153,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void connect(URI webSocketURI, String[] subprotocols, WebSocket.WebSocketConnectionObserver connectionObserver, WebSocketOptions options) throws WebSocketException {
-		if (mSocketChannel != null && mSocketChannel.isConnected()) {
+		if (mSocket != null && mSocket.isConnected()) {
 			throw new WebSocketException("already connected");
 		}
 
@@ -188,21 +196,35 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	private void connect() {
-		SocketThread socketThread = new SocketThread(mWebSocketURI, mWebSocketOptions);
+		mSocketThread = new SocketThread(mWebSocketURI, mWebSocketOptions);
 
-		socketThread.start();
-		synchronized (socketThread) {
+		mSocketThread.start();
+		synchronized (mSocketThread) {
 			try {
-				socketThread.wait();
+				mSocketThread.wait();
+			} catch (InterruptedException e) {
+			}
+		}
+		mSocketThread.getHandler().post(new Runnable() {
+			
+			@Override
+			public void run() {
+				mSocketThread.startConnection();
+			}
+		});
+		
+		synchronized (mSocketThread) {
+			try {
+				mSocketThread.wait();
 			} catch (InterruptedException e) {
 			}
 		}
 
-		this.mSocketChannel = socketThread.getSocketChannel();
-		this.mSSLEngine = socketThread.getSSLEngine();
-		if (mSocketChannel == null) {
-			onClose(WebSocketCloseNotification.CANNOT_CONNECT, socketThread.getFailureMessage());
-		} else if (mSocketChannel.isConnected()) {
+		this.mSocket = mSocketThread.getSocket();
+		
+		if (mSocket == null) {
+			onClose(WebSocketCloseNotification.CANNOT_CONNECT, mSocketThread.getFailureMessage());
+		} else if (mSocket.isConnected()) {
 			try {
 				createReader();
 				createWriter();
@@ -230,7 +252,7 @@ public class WebSocketConnection implements WebSocket {
 		 *  - reconnect interval is set
 		 */
 		int interval = mWebSocketOptions.getReconnectInterval();
-		boolean shouldReconnect = mSocketChannel.isConnected() && mPreviousConnection && (interval > 0);
+		boolean shouldReconnect = mSocket.isConnected() && mPreviousConnection && (interval > 0);
 		if (shouldReconnect) {
 			Log.d(TAG, "WebSocket reconnection scheduled");
 			mHandler.postDelayed(new Runnable() {
@@ -269,7 +291,7 @@ public class WebSocketConnection implements WebSocket {
 				e.printStackTrace();
 			}
 		} else {
-			Log.d(TAG, "mWebSocketObserver already NULL");
+			Log.d(TAG, "WebSocketObserver null");
 		}
 	}
 
@@ -284,7 +306,7 @@ public class WebSocketConnection implements WebSocket {
 	 * Create WebSockets background writer.
 	 */
 	protected void createWriter() {
-		mWebSocketWriter = new WebSocketWriter(mHandler, mSocketChannel, mSSLEngine, mWebSocketOptions, WS_WRITER);
+		mWebSocketWriter = new WebSocketWriter(mHandler, mSocket, mWebSocketOptions, WS_WRITER);
 		mWebSocketWriter.start();
 
 		synchronized (mWebSocketWriter) {
@@ -303,7 +325,7 @@ public class WebSocketConnection implements WebSocket {
 	 */
 	protected void createReader() {
 
-		mWebSocketReader = new WebSocketReader(mHandler, mSocketChannel, mSSLEngine, mWebSocketOptions, WS_READER);
+		mWebSocketReader = new WebSocketReader(mHandler, mSocket, mWebSocketOptions, WS_READER);
 		mWebSocketReader.start();
 
 		synchronized (mWebSocketReader) {
@@ -404,38 +426,45 @@ public class WebSocketConnection implements WebSocket {
 
 
 
-	private static class SocketThread extends Thread {	
+	public static class SocketThread extends Thread {
+		private static final String WS_CONNECTOR = "WebSocketConnector";
+
 		private final URI mWebSocketURI;
-		private final WebSocketOptions mWebSocketOptions;
 
-		private SocketChannel mSocketChannel = null;
-		private SSLEngine mSSLEngine = null;
+		private Socket mSocket = null;
 		private String mFailureMessage = null;
-
+		
+		private Handler mHandler;
+		
 
 
 		public SocketThread(URI uri, WebSocketOptions options) {
 			this.setName(WS_CONNECTOR);
+			
 			this.mWebSocketURI = uri;
-			this.mWebSocketOptions = options;
 		}
 
 
 
 		@Override
 		public void run() {
+			Looper.prepare();
+			this.mHandler = new Handler();
 			synchronized (this) {
-				connect();
 				notifyAll();
 			}
+			
+			Looper.loop();
+			Log.d(TAG, "SocketThread exited.");
 		}
 
 
 
-		public void connect() {	
+		public void startConnection() {	
 			try {
 				String host = mWebSocketURI.getHost();
 				int port = mWebSocketURI.getPort();
+
 				if (port == -1) {
 					if (mWebSocketURI.getScheme().equals(WSS_URI_SCHEME)) {
 						port = 443;
@@ -443,35 +472,39 @@ public class WebSocketConnection implements WebSocket {
 						port = 80;
 					}
 				}
-
-				SocketChannel socketChannel = SocketChannel.open();
-				socketChannel.socket().connect(new InetSocketAddress(host, port), mWebSocketOptions.getSocketConnectTimeout());
-				socketChannel.socket().setSoTimeout(mWebSocketOptions.getSocketReceiveTimeout());
-				socketChannel.socket().setTcpNoDelay(mWebSocketOptions.getTcpNoDelay());
-
-				if (mWebSocketURI.getScheme().equals(WSS_URI_SCHEME)) {
-					SSLContext sslContext;
-					try {
-						sslContext = SSLContext.getDefault();
-						this.mSSLEngine = sslContext.createSSLEngine();	
-						mSSLEngine.setUseClientMode(true);
-						mSSLEngine.beginHandshake();
-					} catch (NoSuchAlgorithmException e) {
-						Log.e(TAG, e.getLocalizedMessage());
-					}
+				
+				SocketFactory factory = null;
+				if (mWebSocketURI.getScheme().equalsIgnoreCase(WSS_URI_SCHEME)) {
+					factory = SSLCertificateSocketFactory.getDefault();
+				} else {
+					factory = SocketFactory.getDefault();
 				}
 
-				this.mSocketChannel = socketChannel;
+				// Do not replace host string with InetAddress or you lose automatic host name verification
+				this.mSocket = factory.createSocket(host, port);
+			} catch (IOException e) {
+				this.mFailureMessage = e.getLocalizedMessage();
+			}
+			
+			synchronized (this) {
+				notifyAll();
+			}
+		}
+		
+		public void stopConnection() {
+			try {
+				mSocket.close();
+				this.mSocket = null;
 			} catch (IOException e) {
 				this.mFailureMessage = e.getLocalizedMessage();
 			}
 		}
 
-		public SocketChannel getSocketChannel() {
-			return mSocketChannel;
+		public Handler getHandler() {
+			return mHandler;
 		}
-		public SSLEngine getSSLEngine() {
-			return mSSLEngine;
+		public Socket getSocket() {
+			return mSocket;
 		}
 		public String getFailureMessage() {
 			return mFailureMessage;

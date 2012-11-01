@@ -18,15 +18,12 @@
 
 package de.tavendo.autobahn;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
+import java.net.Socket;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLEngineResult;
 
 import android.os.Handler;
 import android.os.Message;
@@ -52,14 +49,14 @@ public class WebSocketReader extends Thread {
 	}
 
 	private final Handler mWebSocketConnectionHandler;
-	private final SocketChannel mSocketChannel;
-	private final SSLEngine mSSLEngine;
+	private final InputStream mInputStream;
 	private final WebSocketOptions mWebSocketOptions;
 
 	private volatile boolean mStopped = false;
-	
+
+
+	private final byte[] mNetworkBuffer;
 	private final ByteBuffer mApplicationBuffer;
-	private final ByteBuffer mNetworkBuffer;
 	private NoCopyByteArrayOutputStream mMessagePayload;
 
 	private ReaderState mState;
@@ -79,16 +76,24 @@ public class WebSocketReader extends Thread {
 	 * @param master    The message handler of master (foreground thread).
 	 * @param socket    The socket channel created on foreground thread.
 	 */
-	public WebSocketReader(Handler master, SocketChannel socket, SSLEngine sslEngine, WebSocketOptions options, String threadName) {
+	public WebSocketReader(Handler master, Socket socket, WebSocketOptions options, String threadName) {
 		super(threadName);
 
 		this.mWebSocketConnectionHandler = master;
-		this.mSocketChannel = socket;
-		this.mSSLEngine = sslEngine;
+
 		this.mWebSocketOptions = options;
 
+		InputStream inputStream = null;
+		try {
+			inputStream = socket.getInputStream();
+		} catch (IOException e) {
+			Log.e(TAG, e.getLocalizedMessage());
+		}
+
+		this.mInputStream = inputStream;
+
+		this.mNetworkBuffer = new byte[options.getMaxFramePayloadSize() + 14];
 		this.mApplicationBuffer = ByteBuffer.allocateDirect(options.getMaxFramePayloadSize() + 14);
-		this.mNetworkBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
 		this.mMessagePayload = new NoCopyByteArrayOutputStream(options.getMaxMessagePayloadSize());
 
 		this.mFrameHeader = null;
@@ -240,7 +245,7 @@ public class WebSocketReader extends Thread {
 					mFrameHeader.setPayloadLength((int) payload_len);
 					mFrameHeader.setHeaderLength(header_len);
 					mFrameHeader.setTotalLen(mFrameHeader.getHeaderLength() + mFrameHeader.getPayloadLength());
-					
+
 					if (masked) {
 						byte[] mask = new byte[4];
 						for (int j = 0; j < 4; ++j) {
@@ -617,61 +622,49 @@ public class WebSocketReader extends Thread {
 		synchronized (this) {
 			notifyAll();
 		}
-		
+
 		Log.d(TAG, "WebSocker reader running.");
+		mApplicationBuffer.clear();
 
-		try {
-			mApplicationBuffer.clear();
- 			
-			do {
-				mNetworkBuffer.clear();
+		while (!mStopped) {
+			try {
 
-				int len = mSocketChannel.read(mNetworkBuffer);
-				mNetworkBuffer.flip();
-				
-				if (mSSLEngine == null) {
-					mApplicationBuffer.put(mNetworkBuffer);
-				} else {
-					SSLEngineResult result = mSSLEngine.unwrap(mNetworkBuffer, mApplicationBuffer);
-					if (result.getHandshakeStatus().equals(SSLEngineResult.HandshakeStatus.NEED_TASK)) {
-						Executor executor = Executors.newSingleThreadExecutor();
-						
-						Runnable task;
-						while ((task = mSSLEngine.getDelegatedTask()) != null) {
-							executor.execute(task);
-						}
-					}
-					Log.d(TAG, result.getStatus().name() + " - " + result.getHandshakeStatus().name());
-				}
-
-				if (len > 0) {
+				int bytesRead = mInputStream.read(mNetworkBuffer);
+				if (bytesRead > 0) {
+					mApplicationBuffer.put(mNetworkBuffer, mApplicationBuffer.position(), bytesRead);
 					while (consumeData()) {
 					}
-				} else if (len < 0) {
+				} else if (bytesRead == -1) {
 					Log.d(TAG, "run() : ConnectionLost");
 
 					notify(new WebSocketMessage.ConnectionLost());
 					this.mStopped = true;
+				} else {
+					Log.e(TAG, "WebSocketReader read() failed.");
 				}
-			} while (!mStopped);
-		} catch (WebSocketException e) {
-			Log.d(TAG, "run() : WebSocketException (" + e.toString() + ")");
+				
+			} catch (WebSocketException e) {
+				Log.d(TAG, "run() : WebSocketException (" + e.toString() + ")");
 
-			// wrap the exception and notify master
-			notify(new WebSocketMessage.ProtocolViolation(e));
-		} catch (SocketException e) {
-			Log.d(TAG, "run() : SocketException (" + e.toString() + ")");
+				// wrap the exception and notify master
+				notify(new WebSocketMessage.ProtocolViolation(e));
+			} catch (SocketException e) {
+				Log.d(TAG, "run() : SocketException (" + e.toString() + ")");
 
-			// wrap the exception and notify master
-			notify(new WebSocketMessage.ConnectionLost());;
-		} catch (Exception e) {
-			Log.d(TAG, "run() : Exception (" + e.toString() + ")");
+				// wrap the exception and notify master
+				notify(new WebSocketMessage.ConnectionLost());
+			} catch (IOException e) {
+				Log.d(TAG, "run() : IOException (" + e.toString() + ")");
+				
+				notify(new WebSocketMessage.ConnectionLost());
+			} catch (Exception e) {
+				Log.d(TAG, "run() : Exception (" + e.toString() + ")");
 
-			// wrap the exception and notify master
-			notify(new WebSocketMessage.Error(e));
-		} finally {
-			this.mStopped = true;
+				// wrap the exception and notify master
+				notify(new WebSocketMessage.Error(e));
+			}
 		}
+
 
 		Log.d(TAG, "WebSocket reader ended.");
 	}

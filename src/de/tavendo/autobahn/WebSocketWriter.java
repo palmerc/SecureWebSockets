@@ -19,14 +19,12 @@
 package de.tavendo.autobahn;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.ref.WeakReference;
+import java.net.Socket;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.util.Random;
-
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLEngineResult;
 
 import android.os.Handler;
 import android.os.Looper;
@@ -43,17 +41,16 @@ import android.util.Log;
  * underlying TCP socket.
  */
 public class WebSocketWriter extends Thread {
-	private static final String TAG = WebSocketWriter.class.getName();
+	private static final String TAG = WebSocketWriter.class.getCanonicalName();
+	
 	private static final int WEB_SOCKETS_VERSION = 13;
 	private static final String CRLF = "\r\n";
 
 	private final Random mRandom = new Random();
 	private final Handler mWebSocketConnectionHandler;
-	private final SocketChannel mSocketChannel;
-	private final SSLEngine mSSLEngine;
 	private final WebSocketOptions mWebSocketOptions;
 	private final ByteBuffer mApplicationBuffer;
-	private final ByteBuffer mNetworkBuffer;
+	private final OutputStream mOutputStream;
 
 	private Handler mHandler;
 
@@ -67,15 +64,22 @@ public class WebSocketWriter extends Thread {
 	 * @param socket    The socket channel created on foreground thread.
 	 * @param options   WebSockets connection options.
 	 */
-	public WebSocketWriter(Handler master, SocketChannel socket, SSLEngine sslEngine, WebSocketOptions options, String threadName) {
+	public WebSocketWriter(Handler master, Socket socket, WebSocketOptions options, String threadName) {
 		super(threadName);
 
 		this.mWebSocketConnectionHandler = master;
-		this.mSocketChannel = socket;
-		this.mSSLEngine = sslEngine;
 		this.mWebSocketOptions = options;
+		
+		OutputStream outputStream = null;
+		try {
+			outputStream = socket.getOutputStream();
+		} catch (IOException e) {
+			Log.e(TAG, e.getLocalizedMessage());
+		}
+		
+		this.mOutputStream = outputStream;
+		
 		this.mApplicationBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
-		this.mNetworkBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
 
 		Log.d(TAG, "WebSocket writer created.");
 	}
@@ -381,25 +385,15 @@ public class WebSocketWriter extends Thread {
 			processMessage(message.obj);
 			mApplicationBuffer.flip();
 
-			mNetworkBuffer.clear();
-			if (mSSLEngine == null) {
-				mNetworkBuffer.put(mApplicationBuffer);
-			} else {
-				SSLEngineResult result = mSSLEngine.wrap(mApplicationBuffer, mNetworkBuffer);
-				Log.d(TAG, result.getHandshakeStatus().name());
-			}
-			mNetworkBuffer.flip();
-
-			while (mNetworkBuffer.remaining() > 0) {
-				mSocketChannel.write(mNetworkBuffer);
-			}
+			mOutputStream.write(mApplicationBuffer.array(), mApplicationBuffer.position(), mApplicationBuffer.limit());
 		} catch (SocketException e) {
-			Log.d(TAG, "run() : SocketException (" + e.toString() + ")");
+			Log.e(TAG, "run() : SocketException (" + e.toString() + ")");
 
 			notify(new WebSocketMessage.ConnectionLost());
-		} catch (Exception e) {
-			e.printStackTrace();
+		} catch (IOException e) {
+			Log.e(TAG, "run() : IOException (" + e.toString() + ")");
 
+		} catch (Exception e) {
 			notify(new WebSocketMessage.Error(e));
 		}
 	}

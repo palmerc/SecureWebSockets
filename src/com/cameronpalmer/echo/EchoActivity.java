@@ -25,10 +25,10 @@ import de.tavendo.autobahn.WebSocketException;
 
 
 public class EchoActivity extends Activity implements WebSocketConnectionObserver {
+	private static final String TAG = EchoActivity.class.getName();
+	
 	private static final String WS_ECHO_SERVER = "ws://echo.websocket.org";
 	private static final String WSS_ECHO_SERVER = "wss://echo.websocket.org";
-
-	private Handler mHandler;
 
 	private EditText mMessageEditText;
 	private ScrollView mResponseScrollView;
@@ -36,6 +36,8 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 	private Button mConnectButton;
 	private Button mSendButton;
 	private Button mRepeatButton;
+
+	private Handler mHandler;
 
 	private WebSocketConnection mConnection;
 	private URI mServerURI;
@@ -130,6 +132,8 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 
 
 	public void connect() {
+		this.mConnection = new WebSocketConnection();
+
 		try {
 			if (mTLSEnabled) {
 				this.mServerURI = new URI(WSS_ECHO_SERVER);
@@ -138,13 +142,14 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 			}
 
 			mConnection.connect(mServerURI, this);
-		} catch (WebSocketException e) {
-			String message = e.getLocalizedMessage();
-			Log.e(getClass().getCanonicalName(), message);
-			displayResponse(message);
+
 		} catch (URISyntaxException e) {
 			String message = e.getLocalizedMessage();
-			Log.e(getClass().getCanonicalName(), message);
+			Log.e(TAG, message);
+			displayResponse(message);
+		} catch (WebSocketException e) {
+			String message = e.getLocalizedMessage();
+			Log.e(TAG, message);
 			displayResponse(message);
 		}
 	}
@@ -202,8 +207,6 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 		mMessageIndex++;
 	}
 
-
-
 	//
 	// WebSocket Handler callbacks
 	@Override
@@ -214,8 +217,8 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 		mSendButton.setEnabled(true);
 		mRepeatButton.setEnabled(true);
 
-		String message = "Connection opened to: " + WS_ECHO_SERVER;
-		Log.d(getClass().getCanonicalName(), message);
+		String message = "Connection opened to: " + mServerURI.toString();
+		Log.d(TAG, message);
 		displayResponse(message);
 	}
 
@@ -223,6 +226,7 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 	public void onClose(WebSocketCloseNotification code, String reason) {
 		this.mIsConnected = false;
 		this.mIsRepeating = false;
+		this.mConnection = null;
 
 		mConnectButton.setText("Connect");
 		mRepeatButton.setText("Repeat");
@@ -230,7 +234,7 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 		mRepeatButton.setEnabled(false);
 
 		String message = "Close: " + code.name() + ", " + reason;
-		Log.d(getClass().getCanonicalName(), message);
+		Log.d(TAG, message);
 		displayResponse(message);
 	}
 
@@ -238,7 +242,7 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 	public void onTextMessage(String payload) {
 		String message = "ECHO: " + payload;
 
-		Log.d(getClass().getCanonicalName(), message);
+		Log.d(TAG, message);
 		displayResponse(message);
 	}
 
