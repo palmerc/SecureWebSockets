@@ -39,7 +39,7 @@ import de.tavendo.autobahn.WebSocketMessage.WebSocketCloseCode;
  * which gracefully shuts down the background receiver thread.
  */
 public class WebSocketReader extends Thread {
-	private static final String TAG = WebSocketReader.class.getName();
+	private static final String TAG = WebSocketReader.class.getCanonicalName();
 
 	private static enum ReaderState { 
 		STATE_CLOSED,
@@ -49,7 +49,8 @@ public class WebSocketReader extends Thread {
 	}
 
 	private final Handler mWebSocketConnectionHandler;
-	private final InputStream mInputStream;
+	private final Socket mSocket;
+	private InputStream mInputStream;
 	private final WebSocketOptions mWebSocketOptions;
 
 	private volatile boolean mStopped = false;
@@ -81,16 +82,8 @@ public class WebSocketReader extends Thread {
 
 		this.mWebSocketConnectionHandler = master;
 
+		this.mSocket = socket;
 		this.mWebSocketOptions = options;
-
-		InputStream inputStream = null;
-		try {
-			inputStream = socket.getInputStream();
-		} catch (IOException e) {
-			Log.e(TAG, e.getLocalizedMessage());
-		}
-
-		this.mInputStream = inputStream;
 
 		this.mNetworkBuffer = new byte[options.getMaxFramePayloadSize() + 14];
 		this.mApplicationBuffer = ByteBuffer.allocateDirect(options.getMaxFramePayloadSize() + 14);
@@ -622,6 +615,15 @@ public class WebSocketReader extends Thread {
 		synchronized (this) {
 			notifyAll();
 		}
+		
+		InputStream inputStream = null;
+		try {
+			inputStream = mSocket.getInputStream();
+		} catch (IOException e) {
+			Log.e(TAG, e.getLocalizedMessage());
+		}
+
+		this.mInputStream = inputStream;
 
 		Log.d(TAG, "WebSocker reader running.");
 		mApplicationBuffer.clear();
