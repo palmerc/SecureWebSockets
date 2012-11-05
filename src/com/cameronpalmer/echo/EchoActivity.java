@@ -28,7 +28,7 @@ public class EchoActivity extends Activity implements WebSocketConnectionObserve
 	private static final String TAG = EchoActivity.class.getName();
 	
 	private static final String WS_ECHO_SERVER = "ws://echo.websocket.org";
-	private static final String WSS_ECHO_SERVER = "wss://cameronpalmer.com";
+	private static final String WSS_ECHO_SERVER = "wss://echo.websocket.org";
 
 	private EditText mMessageEditText;
 	private ScrollView mResponseScrollView;
