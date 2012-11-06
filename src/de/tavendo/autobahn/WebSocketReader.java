@@ -85,7 +85,7 @@ public class WebSocketReader extends Thread {
 		this.mSocket = socket;
 		this.mWebSocketOptions = options;
 
-		this.mNetworkBuffer = new byte[options.getMaxFramePayloadSize() + 14];
+		this.mNetworkBuffer = new byte[4096];
 		this.mApplicationBuffer = ByteBuffer.allocateDirect(options.getMaxFramePayloadSize() + 14);
 		this.mMessagePayload = new NoCopyByteArrayOutputStream(options.getMaxMessagePayloadSize());
 
@@ -633,7 +633,7 @@ public class WebSocketReader extends Thread {
 
 				int bytesRead = mInputStream.read(mNetworkBuffer);
 				if (bytesRead > 0) {
-					mApplicationBuffer.put(mNetworkBuffer, mApplicationBuffer.position(), bytesRead);
+					mApplicationBuffer.put(mNetworkBuffer, 0, bytesRead);
 					while (consumeData()) {
 					}
 				} else if (bytesRead == -1) {
