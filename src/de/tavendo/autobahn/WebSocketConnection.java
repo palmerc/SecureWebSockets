@@ -252,7 +252,7 @@ public class WebSocketConnection implements WebSocket {
 		 *  - reconnect interval is set
 		 */
 		int interval = mWebSocketOptions.getReconnectInterval();
-		boolean shouldReconnect = mSocket.isConnected() && mPreviousConnection && (interval > 0);
+		boolean shouldReconnect = mSocket != null && mSocket.isConnected() && mPreviousConnection && (interval > 0);
 		if (shouldReconnect) {
 			Log.d(TAG, "WebSocket reconnection scheduled");
 			mHandler.postDelayed(new Runnable() {
@@ -481,7 +481,8 @@ public class WebSocketConnection implements WebSocket {
 				}
 
 				// Do not replace host string with InetAddress or you lose automatic host name verification
-				this.mSocket = factory.createSocket(host, port);
+				Socket socket = factory.createSocket(host, port);		
+				this.mSocket = socket;
 			} catch (IOException e) {
 				this.mFailureMessage = e.getLocalizedMessage();
 			}
