@@ -26,8 +26,6 @@ import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.util.Random;
 
-import com.twofours.surespot.common.SurespotLog;
-
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -101,14 +99,9 @@ public class WebSocketWriter extends Thread {
 	 *                      this class).
 	 */
 	public void forward(Object message) {
-		try {
 		Message msg = mHandler.obtainMessage();
 		msg.obj = message;
 		mHandler.sendMessage(msg);
-		}
-		catch (RuntimeException re) {
-			SurespotLog.w(TAG, "forward, caught exception sending message: " + re.getLocalizedMessage());
-		}
 	}
 
 
