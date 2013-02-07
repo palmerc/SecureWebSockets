@@ -102,6 +102,7 @@ public class WebSocketReader extends Thread {
 	public void quit() {
 
 		mStopped = true;
+			
 
 		Log.d(TAG, "quit");
 	}
@@ -621,6 +622,7 @@ public class WebSocketReader extends Thread {
 			inputStream = mSocket.getInputStream();
 		} catch (IOException e) {
 			Log.e(TAG, e.getLocalizedMessage());
+			return;
 		}
 
 		this.mInputStream = inputStream;

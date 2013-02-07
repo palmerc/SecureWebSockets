@@ -50,10 +50,10 @@ public class WebSocketWriter extends Thread {
 	private final Handler mWebSocketConnectionHandler;
 	private final WebSocketOptions mWebSocketOptions;
 	private final ByteBuffer mApplicationBuffer;
-	private final OutputStream mOutputStream;
+	private OutputStream mOutputStream;
 
 	private Handler mHandler;
-
+	private Socket socket;
 
 	/**
 	 * Create new WebSockets background writer.
@@ -70,14 +70,17 @@ public class WebSocketWriter extends Thread {
 		this.mWebSocketConnectionHandler = master;
 		this.mWebSocketOptions = options;
 		
-		OutputStream outputStream = null;
-		try {
-			outputStream = socket.getOutputStream();
-		} catch (IOException e) {
-			Log.e(TAG, e.getLocalizedMessage());
-		}
+		this.socket = socket;
 		
-		this.mOutputStream = outputStream;
+		//this breaks when testing on local network because it tries to do a dns request on the ui thread
+//		OutputStream outputStream = null;
+//		try {
+//			outputStream = socket.getOutputStream();
+//		} catch (IOException e) {
+//			Log.e(TAG, e.getLocalizedMessage());
+//		}
+//		
+//		this.mOutputStream = outputStream;
 		
 		this.mApplicationBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
 
@@ -413,6 +416,17 @@ public class WebSocketWriter extends Thread {
 	// Thread method overrides
 	@Override
 	public void run() {		
+		
+		//This can not be on the UI thread as it will puke during hostname resolution
+		OutputStream outputStream = null;
+		try {
+			outputStream = socket.getOutputStream();
+		} catch (IOException e) {
+			Log.e(TAG, e.getLocalizedMessage());
+		}
+		
+		this.mOutputStream = outputStream;
+				
 		Looper.prepare();
 
 		this.mHandler = new ThreadHandler(this);

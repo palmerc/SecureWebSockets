@@ -20,6 +20,8 @@ package de.tavendo.autobahn;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 
@@ -60,7 +62,6 @@ public class WebSocketConnection implements WebSocket {
 
 	public WebSocketConnection() {
 		Log.d(TAG, "WebSocket connection created.");
-
 		this.mHandler = new ThreadHandler(this);
 	}
 
@@ -174,7 +175,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void disconnect() {
-		if (mWebSocketWriter != null) {
+		if (mWebSocketWriter != null && mWebSocketWriter.isAlive()) {
 			mWebSocketWriter.forward(new WebSocketMessage.Close());
 		} else {
 			Log.d(TAG, "Could not send WebSocket Close .. writer already null");
