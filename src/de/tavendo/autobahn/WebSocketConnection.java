@@ -174,7 +174,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void disconnect() {
-		if (mWebSocketWriter != null) {
+		if (mWebSocketWriter != null && mWebSocketWriter.isAlive()) {
 			mWebSocketWriter.forward(new WebSocketMessage.Close());
 		} else {
 			Log.d(TAG, "Could not send WebSocket Close .. writer already null");

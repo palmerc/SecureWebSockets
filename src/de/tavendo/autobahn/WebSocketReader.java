@@ -621,6 +621,7 @@ public class WebSocketReader extends Thread {
 			inputStream = mSocket.getInputStream();
 		} catch (IOException e) {
 			Log.e(TAG, e.getLocalizedMessage());
+			return;
 		}
 
 		this.mInputStream = inputStream;

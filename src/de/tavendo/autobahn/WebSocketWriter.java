@@ -50,7 +50,9 @@ public class WebSocketWriter extends Thread {
 	private final Handler mWebSocketConnectionHandler;
 	private final WebSocketOptions mWebSocketOptions;
 	private final ByteBuffer mApplicationBuffer;
-	private final OutputStream mOutputStream;
+	private final Socket mSocket;
+
+	private OutputStream mOutputStream;
 
 	private Handler mHandler;
 
@@ -69,15 +71,7 @@ public class WebSocketWriter extends Thread {
 
 		this.mWebSocketConnectionHandler = master;
 		this.mWebSocketOptions = options;
-		
-		OutputStream outputStream = null;
-		try {
-			outputStream = socket.getOutputStream();
-		} catch (IOException e) {
-			Log.e(TAG, e.getLocalizedMessage());
-		}
-		
-		this.mOutputStream = outputStream;
+		this.mSocket = socket;
 		
 		this.mApplicationBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
 
@@ -412,7 +406,16 @@ public class WebSocketWriter extends Thread {
 
 	// Thread method overrides
 	@Override
-	public void run() {		
+	public void run() {	
+		OutputStream outputStream = null;
+		try {
+			outputStream = mSocket.getOutputStream();
+		} catch (IOException e) {
+			Log.e(TAG, e.getLocalizedMessage());
+		}
+		
+		this.mOutputStream = outputStream;
+		
 		Looper.prepare();
 
 		this.mHandler = new ThreadHandler(this);
