@@ -1,4 +1,4 @@
-This project is meant to add working TLS support to the Autobahn WebSocket library as a preliminary step to implementation at work.
+This project is meant to add working TLS support to the [Autobahn WebSocket][6] library as a preliminary step to implementation at work.
 
 The problem being solved was in part switching the Autobahn library off of Java NIO. Java NIO is broken on Android and you must use the classic java sockets. [Android Issue 12955][1]
 
@@ -12,4 +12,5 @@ To disable SSL certificate checks you can tell [SSLCertificateSocketFactory][3] 
 [3]: http://developer.android.com/reference/android/net/SSLCertificateSocketFactory.html
 [4]: http://en.wikipedia.org/wiki/Echo_Protocol
 [5]: http://www.android.com
+[6]: http://autobahn.ws
 
