@@ -85,7 +85,7 @@ public class WebSocketConnection implements WebSocket {
 
 
 	public boolean isConnected() {
-		return mSocket != null && mSocket.isConnected();
+		return mSocket != null && mSocket.isConnected() && !mSocket.isClosed();
 	}
 
 
