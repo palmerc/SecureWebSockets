@@ -252,7 +252,7 @@ public class WebSocketConnection implements WebSocket {
 		 *  - reconnect interval is set
 		 */
 		int interval = mWebSocketOptions.getReconnectInterval();
-		boolean shouldReconnect = mSocket.isConnected() && mPreviousConnection && (interval > 0);
+		boolean shouldReconnect = mSocket != null && mSocket.isConnected() && mPreviousConnection && (interval > 0);
 		if (shouldReconnect) {
 			Log.d(TAG, "WebSocket reconnection scheduled");
 			mHandler.postDelayed(new Runnable() {
