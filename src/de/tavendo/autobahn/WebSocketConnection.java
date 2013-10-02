@@ -153,7 +153,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void connect(URI webSocketURI, String[] subprotocols, WebSocket.WebSocketConnectionObserver connectionObserver, WebSocketOptions options) throws WebSocketException {
-		if (mSocket != null && mSocket.isConnected()) {
+		if (isConnected()) {
 			throw new WebSocketException("already connected");
 		}
 
