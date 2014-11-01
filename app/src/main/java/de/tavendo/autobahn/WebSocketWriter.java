@@ -141,7 +141,12 @@ public class WebSocketWriter extends Thread {
 			path = "/";
 		}
 
-		mApplicationBuffer.put(("GET " + path + " HTTP/1.1" + CRLF).getBytes());
+        String query = message.getURI().getQuery();
+        if (query != null && query.length() > 0) {
+    		path = path + "?" + query;
+    	}
+
+        mApplicationBuffer.put(("GET " + path + " HTTP/1.1" + CRLF).getBytes());
 		mApplicationBuffer.put(("Host: " + message.getURI().getHost() + CRLF).getBytes());
 		mApplicationBuffer.put(("Upgrade: WebSocket" + CRLF).getBytes());
 		mApplicationBuffer.put(("Connection: Upgrade" + CRLF).getBytes());

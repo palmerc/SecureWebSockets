@@ -153,7 +153,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void connect(URI webSocketURI, String[] subprotocols, WebSocket.WebSocketConnectionObserver connectionObserver, WebSocketOptions options) throws WebSocketException {
-		if (mSocket != null && mSocket.isConnected()) {
+		if (isConnected()) {
 			throw new WebSocketException("already connected");
 		}
 
@@ -252,8 +252,11 @@ public class WebSocketConnection implements WebSocket {
 		 *  - reconnect interval is set
 		 */
 		int interval = mWebSocketOptions.getReconnectInterval();
-		boolean shouldReconnect = mSocket.isConnected() && mPreviousConnection && (interval > 0);
-		if (shouldReconnect) {
+        boolean shouldReconnect = mSocket != null
+                && mSocket.isConnected()
+                && mPreviousConnection
+                && (interval > 0);
+        if (shouldReconnect) {
 			Log.d(TAG, "WebSocket reconnection scheduled");
 			mHandler.postDelayed(new Runnable() {
 
