@@ -1,8 +1,16 @@
+## Secure Web Sockets
+
 This project is meant to add working TLS support to the [Autobahn WebSocket][6] library as a preliminary step to implementation at work.
 
 The problem being solved was in part switching the Autobahn library off of Java NIO. Java NIO is broken on Android and you must use the classic java sockets. [Android Issue 12955][1]
 
 The project comes with an example [Android][5] WebSocket [Echo client][4] that communicates with [WebSocket.org's echo server][2] with or without SSL encryption.
+
+### A quick demonstration for Android
+
+    1. Launch the emulator 
+    2. ./gradlew assembleDebug
+    3. adb install out/production/SecureWebSockets/SecureWebSockets.apk
 
 To disable SSL certificate checks you can tell [SSLCertificateSocketFactory][3] to relax its checks:
 > On development devices, "setprop socket.relaxsslcheck yes" bypasses all SSL certificate and hostname checks for testing purposes. This setting requires root access. 
