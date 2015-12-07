@@ -471,7 +471,7 @@ public class WebSocketReader extends Thread {
 	 *                   from raw UTF-8 payload or null (empty payload).
 	 */
 	protected void onTextMessage(String payload) {
-		Log.d(TAG, "Text message: " + payload);
+
 		notify(new WebSocketMessage.TextMessage(payload));
 	}
 
@@ -485,7 +485,6 @@ public class WebSocketReader extends Thread {
 	 *                   null (empty payload).
 	 */
 	protected void onRawTextMessage(byte[] payload) {
-		Log.d(TAG, "Raw text message: " + payload);
 
 		notify(new WebSocketMessage.RawTextMessage(payload));
 	}
@@ -497,7 +496,6 @@ public class WebSocketReader extends Thread {
 	 * @param payload    Binary message payload or null (empty payload).
 	 */
 	protected void onBinaryMessage(byte[] payload) {
-		Log.d(TAG, "Binary message: " + payload);
 
 		notify(new WebSocketMessage.BinaryMessage(payload));
 	}
@@ -617,12 +615,13 @@ public class WebSocketReader extends Thread {
 		synchronized (this) {
 			notifyAll();
 		}
-
+		
 		InputStream inputStream = null;
 		try {
 			inputStream = mSocket.getInputStream();
 		} catch (IOException e) {
 			Log.e(TAG, e.getLocalizedMessage());
+			return;
 		}
 
 		this.mInputStream = inputStream;
@@ -632,24 +631,21 @@ public class WebSocketReader extends Thread {
 
 		while (!mStopped) {
 			try {
-				if (mInputStream != null) {
-					int bytesRead = mInputStream.read(mNetworkBuffer);
-					if (bytesRead > 0) {
-						mApplicationBuffer.put(mNetworkBuffer, 0, bytesRead);
-						while (consumeData()) {
-						}
-					} else if (bytesRead == -1) {
-						Log.d(TAG, "run() : ConnectionLost");
 
-						notify(new WebSocketMessage.ConnectionLost());
-						this.mStopped = true;
-					} else {
-						Log.e(TAG, "WebSocketReader read() failed.");
+				int bytesRead = mInputStream.read(mNetworkBuffer);
+				if (bytesRead > 0) {
+					mApplicationBuffer.put(mNetworkBuffer, 0, bytesRead);
+					while (consumeData()) {
 					}
-				} else {
-					this.mStopped = true;
-				}
+				} else if (bytesRead == -1) {
+					Log.d(TAG, "run() : ConnectionLost");
 
+					notify(new WebSocketMessage.ConnectionLost());
+					this.mStopped = true;
+				} else {
+					Log.e(TAG, "WebSocketReader read() failed.");
+				}
+				
 			} catch (WebSocketException e) {
 				Log.d(TAG, "run() : WebSocketException (" + e.toString() + ")");
 
@@ -662,7 +658,7 @@ public class WebSocketReader extends Thread {
 				notify(new WebSocketMessage.ConnectionLost());
 			} catch (IOException e) {
 				Log.d(TAG, "run() : IOException (" + e.toString() + ")");
-
+				
 				notify(new WebSocketMessage.ConnectionLost());
 			} catch (Exception e) {
 				Log.d(TAG, "run() : Exception (" + e.toString() + ")");

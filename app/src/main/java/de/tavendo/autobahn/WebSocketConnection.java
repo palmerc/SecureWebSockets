@@ -85,7 +85,7 @@ public class WebSocketConnection implements WebSocket {
 
 
 	public boolean isConnected() {
-		return mSocket != null && mSocket.isConnected();
+		return mSocket != null && mSocket.isConnected() && !mSocket.isClosed();
 	}
 
 
@@ -153,7 +153,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void connect(URI webSocketURI, String[] subprotocols, WebSocket.WebSocketConnectionObserver connectionObserver, WebSocketOptions options) throws WebSocketException {
-		if (mSocket != null && mSocket.isConnected()) {
+		if (isConnected()) {
 			throw new WebSocketException("already connected");
 		}
 
@@ -174,7 +174,7 @@ public class WebSocketConnection implements WebSocket {
 	}
 
 	public void disconnect() {
-		if (mWebSocketWriter != null) {
+		if (mWebSocketWriter != null && mWebSocketWriter.isAlive()) {
 			mWebSocketWriter.forward(new WebSocketMessage.Close());
 		} else {
 			Log.d(TAG, "Could not send WebSocket Close .. writer already null");
@@ -252,8 +252,11 @@ public class WebSocketConnection implements WebSocket {
 		 *  - reconnect interval is set
 		 */
 		int interval = mWebSocketOptions.getReconnectInterval();
-		boolean shouldReconnect = mSocket != null && mSocket.isConnected() && mPreviousConnection && (interval > 0);
-		if (shouldReconnect) {
+        boolean shouldReconnect = mSocket != null
+                && mSocket.isConnected()
+                && mPreviousConnection
+                && (interval > 0);
+        if (shouldReconnect) {
 			Log.d(TAG, "WebSocket reconnection scheduled");
 			mHandler.postDelayed(new Runnable() {
 
@@ -481,8 +484,7 @@ public class WebSocketConnection implements WebSocket {
 				}
 
 				// Do not replace host string with InetAddress or you lose automatic host name verification
-				Socket socket = factory.createSocket(host, port);		
-				this.mSocket = socket;
+				this.mSocket = factory.createSocket(host, port);
 			} catch (IOException e) {
 				this.mFailureMessage = e.getLocalizedMessage();
 			}

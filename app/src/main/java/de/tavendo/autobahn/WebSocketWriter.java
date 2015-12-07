@@ -42,7 +42,7 @@ import android.util.Log;
  */
 public class WebSocketWriter extends Thread {
 	private static final String TAG = WebSocketWriter.class.getCanonicalName();
-
+	
 	private static final int WEB_SOCKETS_VERSION = 13;
 	private static final String CRLF = "\r\n";
 
@@ -50,7 +50,9 @@ public class WebSocketWriter extends Thread {
 	private final Handler mWebSocketConnectionHandler;
 	private final WebSocketOptions mWebSocketOptions;
 	private final ByteBuffer mApplicationBuffer;
-	private final OutputStream mOutputStream;
+	private final Socket mSocket;
+
+	private OutputStream mOutputStream;
 
 	private Handler mHandler;
 
@@ -69,16 +71,8 @@ public class WebSocketWriter extends Thread {
 
 		this.mWebSocketConnectionHandler = master;
 		this.mWebSocketOptions = options;
-
-		OutputStream outputStream = null;
-		try {
-			outputStream = socket.getOutputStream();
-		} catch (IOException e) {
-			Log.e(TAG, e.getLocalizedMessage());
-		}
-
-		this.mOutputStream = outputStream;
-
+		this.mSocket = socket;
+		
 		this.mApplicationBuffer = ByteBuffer.allocate(options.getMaxFramePayloadSize() + 14);
 
 		Log.d(TAG, "WebSocket writer created.");
@@ -147,7 +141,12 @@ public class WebSocketWriter extends Thread {
 			path = "/";
 		}
 
-		mApplicationBuffer.put(("GET " + path + " HTTP/1.1" + CRLF).getBytes());
+        String query = message.getURI().getQuery();
+        if (query != null && query.length() > 0) {
+    		path = path + "?" + query;
+    	}
+
+        mApplicationBuffer.put(("GET " + path + " HTTP/1.1" + CRLF).getBytes());
 		mApplicationBuffer.put(("Host: " + message.getURI().getHost() + CRLF).getBytes());
 		mApplicationBuffer.put(("Upgrade: WebSocket" + CRLF).getBytes());
 		mApplicationBuffer.put(("Connection: Upgrade" + CRLF).getBytes());
@@ -385,19 +384,14 @@ public class WebSocketWriter extends Thread {
 			processMessage(message.obj);
 			mApplicationBuffer.flip();
 
-			if (mOutputStream != null) {
-				Log.d(TAG, new String(mApplicationBuffer.array(), 0, mApplicationBuffer.limit()));
-				mApplicationBuffer.rewind();
-				mOutputStream.write(mApplicationBuffer.array(), 0, mApplicationBuffer.limit());
-			} else {
-				Looper.myLooper().quit();
-			}
+			mOutputStream.write(mApplicationBuffer.array(), mApplicationBuffer.position(), mApplicationBuffer.limit());
 		} catch (SocketException e) {
 			Log.e(TAG, "run() : SocketException (" + e.toString() + ")");
 
 			notify(new WebSocketMessage.ConnectionLost());
 		} catch (IOException e) {
 			Log.e(TAG, "run() : IOException (" + e.toString() + ")");
+
 		} catch (Exception e) {
 			notify(new WebSocketMessage.Error(e));
 		}
@@ -417,7 +411,16 @@ public class WebSocketWriter extends Thread {
 
 	// Thread method overrides
 	@Override
-	public void run() {		
+	public void run() {	
+		OutputStream outputStream = null;
+		try {
+			outputStream = mSocket.getOutputStream();
+		} catch (IOException e) {
+			Log.e(TAG, e.getLocalizedMessage());
+		}
+		
+		this.mOutputStream = outputStream;
+		
 		Looper.prepare();
 
 		this.mHandler = new ThreadHandler(this);
