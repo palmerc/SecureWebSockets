@@ -1,4 +1,4 @@
-## Secure Web Sockets
+## Secure Web Sockets on Android
 
 This project is meant to add working TLS support to the [Autobahn WebSocket][6] library as a preliminary step to implementation at work.
 
